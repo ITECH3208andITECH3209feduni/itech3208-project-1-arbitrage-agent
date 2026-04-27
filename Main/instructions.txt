@@ -1,0 +1,19 @@
+Small translation sample:
+
+export GEMINI_API_KEY="AIzaSyC1ygF33j3rHkoNNpCgcnt4Tgy9MPLVD1o" 
+
+python main.py \
+  --brand-url "https://www.goo-net.com/usedcar/brand-SUBARU/" \
+  --max-model-pages 2 \
+  --max-pages-per-model 5 \
+  --detail-limit 3 \
+  --translate \
+  --sqlite-out goo_sample_output.db
+
+Non-translation full-crawl:
+
+python main.py \
+  --brand-url "https://www.goo-net.com/usedcar/brand-SUBARU/" \
+  --max-model-pages 5 \
+  --max-pages-per-model 10 \
+  --sqlite-out goo_full_output.db
