@@ -99,23 +99,32 @@ describe("parseMileage", () => {
 function makeRecord(overrides: Partial<VehicleRecord> = {}): VehicleRecord {
   return {
     url: "https://www.goo-net.com/example",
-    title: "  トヨタ アルファード  ",
+    title: "  Toyota Alphard 3.5 SC Package  ",
+    titleRaw: "  トヨタ アルファード 3.5 SC Package  ",
     price: null,
     priceRaw: "350万円",
     mileage: null,
     mileageRaw: "3.5万km",
     year: null,
-    color: "  パールマイカ  ",
+    color: "  Pearl Mica  ",
+    colorRaw: "  パールマイカ  ",
     transmission: "  CVT  ",
-    driveType: "  4WD  ",
+    transmissionRaw: "  CVT  ",
+    driveType: "  4WD/AWD  ",
+    driveTypeRaw: "  4WD  ",
     engineSize: "  3,456cc  ",
-    fuelType: "  ガソリン  ",
-    bodyType: "  ワンボックス  ",
+    fuelType: "  Gasoline  ",
+    fuelTypeRaw: "  ガソリン  ",
+    bodyType: "  Minivan  ",
+    bodyTypeRaw: "  ワンボックス  ",
     doors: null,
     seats: null,
-    dealer: "  ○○モーター  ",
-    location: "  東京都  ",
-    description: "  低走行車  ",
+    dealerRaw: "  ○○モーター  ",
+    dealer: "  ○○Motors  ",
+    locationRaw: "  東京都  ",
+    location: "  Tokyo  ",
+    description: "  Low mileage. One owner.  ",
+    descriptionRaw: "  低走行車。ワンオーナー。  ",
     images: [],
     extractedAt: "2024-01-01T00:00:00Z",
     ...overrides,
@@ -145,22 +154,38 @@ describe("normalizeRecord", () => {
 
   it("trims string fields", () => {
     const result = normalizeRecord(makeRecord());
-    expect(result.title).toBe("トヨタ アルファード");
-    expect(result.color).toBe("パールマイカ");
+    expect(result.title).toBe("Toyota Alphard 3.5 SC Package");
+    expect(result.titleRaw).toBe("トヨタ アルファード 3.5 SC Package");
+    expect(result.color).toBe("Pearl Mica");
+    expect(result.colorRaw).toBe("パールマイカ");
     expect(result.transmission).toBe("CVT");
-    expect(result.dealer).toBe("○○モーター");
-    expect(result.location).toBe("東京都");
-    expect(result.description).toBe("低走行車");
+    expect(result.transmissionRaw).toBe("CVT");
+    expect(result.driveType).toBe("4WD/AWD");
+    expect(result.driveTypeRaw).toBe("4WD");
+    expect(result.fuelType).toBe("Gasoline");
+    expect(result.fuelTypeRaw).toBe("ガソリン");
+    expect(result.bodyType).toBe("Minivan");
+    expect(result.bodyTypeRaw).toBe("ワンボックス");
+    expect(result.dealerRaw).toBe("○○モーター");
+    expect(result.dealer).toBe("○○Motors");
+    expect(result.locationRaw).toBe("東京都");
+    expect(result.location).toBe("Tokyo");
+    expect(result.description).toBe("Low mileage. One owner.");
+    expect(result.descriptionRaw).toBe("低走行車。ワンオーナー。");
   });
 
   it("defaults empty strings for missing optionals", () => {
     const record = makeRecord({
       title: undefined as any,
+      titleRaw: undefined as any,
       color: undefined as any,
+      colorRaw: undefined as any,
     });
     const result = normalizeRecord(record);
     expect(result.title).toBe("");
+    expect(result.titleRaw).toBe("");
     expect(result.color).toBe("");
+    expect(result.colorRaw).toBe("");
   });
 
   it("defaults null for doors/seats/year", () => {

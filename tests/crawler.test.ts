@@ -65,32 +65,50 @@ describe("crawl", () => {
       {
         url: "https://www.goo-net.com/car/1",
         title: "Toyota Alphard",
+        titleRaw: "トヨタ アルファード",
         priceRaw: "100万円",
         mileageRaw: "1万km",
         color: "White",
+        colorRaw: "ホワイト",
         transmission: "Automatic",
-        driveType: "4WD",
+        transmissionRaw: "AT",
+        driveType: "4WD/AWD",
+        driveTypeRaw: "4WD",
         engineSize: "2.5L",
         fuelType: "Gasoline",
+        fuelTypeRaw: "ガソリン",
         bodyType: "Minivan",
+        bodyTypeRaw: "ミニバン",
+        dealerRaw: "東京モータース",
         dealer: "Tokyo Motors",
-        location: "東京都",
+        locationRaw: "東京都",
+        location: "Tokyo",
         description: "Clean car.",
+        descriptionRaw: "キレイな車。",
       },
       {
         url: "https://www.goo-net.com/car/2",
         title: "Honda Stepwgn",
+        titleRaw: "ホンダ ステップワゴン",
         priceRaw: "200万円",
         mileageRaw: "2万km",
         color: "Black",
+        colorRaw: "ブラック",
         transmission: "CVT",
+        transmissionRaw: "CVT",
         driveType: "FWD",
+        driveTypeRaw: "FF",
         engineSize: "2.0L",
         fuelType: "Hybrid",
+        fuelTypeRaw: "ハイブリッド",
         bodyType: "Minivan",
+        bodyTypeRaw: "ミニバン",
+        dealerRaw: "大阪カーズ",
         dealer: "Osaka Cars",
-        location: "大阪府",
+        locationRaw: "大阪府",
+        location: "Osaka",
         description: "Well maintained.",
+        descriptionRaw: "よく整備されています。",
       },
     ]));
 
@@ -104,8 +122,10 @@ describe("crawl", () => {
     expect(result.totalFound).toBe(2);
     expect(result.totalExtracted).toBe(2);
     expect(result.records[0].title).toBe("Toyota Alphard");
+    expect(result.records[0].titleRaw).toBe("トヨタ アルファード");
     expect(result.records[0].price).toBe(1_000_000);
     expect(result.records[1].title).toBe("Honda Stepwgn");
+    expect(result.records[1].titleRaw).toBe("ホンダ ステップワゴン");
     expect(result.records[1].price).toBe(2_000_000);
 
     const jsonPath = path.join(tmpDir, "vehicles.json");
@@ -149,7 +169,20 @@ describe("crawl", () => {
       }),
     });
     mockPrompt.mockResolvedValueOnce(JSON.stringify([
-      { url: "https://www.goo-net.com/car/1", title: "Car 1", priceRaw: "100万円", mileageRaw: "1万km" },
+      {
+        url: "https://www.goo-net.com/car/1",
+        title: "Car 1", titleRaw: "車 1",
+        priceRaw: "100万円", mileageRaw: "1万km",
+        color: "Red", colorRaw: "レッド",
+        transmission: "Automatic", transmissionRaw: "AT",
+        driveType: "FWD", driveTypeRaw: "FF",
+        engineSize: "2.0L",
+        fuelType: "Gasoline", fuelTypeRaw: "ガソリン",
+        bodyType: "Sedan", bodyTypeRaw: "セダン",
+        dealerRaw: "Test Dealer", dealer: "Test Dealer",
+        locationRaw: "Tokyo", location: "Tokyo",
+        description: "Test.", descriptionRaw: "テスト。",
+      },
     ]));
 
     const { crawl } = await import("../src/crawler.js");

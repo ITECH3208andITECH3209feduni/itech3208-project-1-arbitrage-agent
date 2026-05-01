@@ -47,9 +47,12 @@ export async function crawl(config: CrawlConfig): Promise<CrawlResult> {
   const system = `You are a data extraction assistant. Extract structured vehicle records from Goo-net listing pages and translate Japanese fields to English.
 Return ONLY a valid JSON array. No markdown fences, no explanation.
 
-Each record must have these fields: url, title, price, priceRaw, mileage, mileageRaw, year, color, transmission, driveType, engineSize, fuelType, bodyType, doors, seats, dealer, location, description, images, extractedAt.
+Each record must have these fields:
+- Raw (Japanese): titleRaw, colorRaw, transmissionRaw, driveTypeRaw, fuelTypeRaw, bodyTypeRaw, descriptionRaw, dealerRaw, locationRaw
+- Translated (English): title, color, transmission, driveType, fuelType, bodyType, description, dealer, location
+- Other: url, price, priceRaw, mileage, mileageRaw, year, engineSize, doors, seats, images, extractedAt
+
 Set missing fields to null for numbers, "" for strings, [] for arrays.
-Keep dealer and location as-is (proper nouns).
 
 ${TRANSLATE_PROMPT}`;
 

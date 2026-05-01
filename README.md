@@ -67,23 +67,21 @@ interface CrawlResult {
 
 interface VehicleRecord {
   url: string;
-  title: string;
-  price: number | null;
-  priceRaw: string;
-  mileage: number | null;
-  mileageRaw: string;
+  /** English */ title: string;              /** Japanese */ titleRaw: string;
+  price: number | null;                      priceRaw: string;
+  mileage: number | null;                    mileageRaw: string;
   year: number | null;
-  color: string;
-  transmission: string;
-  driveType: string;
+  /** English */ color: string;              /** Japanese */ colorRaw: string;
+  /** English */ transmission: string;       /** Japanese */ transmissionRaw: string;
+  /** English */ driveType: string;          /** Japanese */ driveTypeRaw: string;
   engineSize: string;
-  fuelType: string;
-  bodyType: string;
+  /** English */ fuelType: string;           /** Japanese */ fuelTypeRaw: string;
+  /** English */ bodyType: string;           /** Japanese */ bodyTypeRaw: string;
   doors: number | null;
   seats: number | null;
-  dealer: string;
-  location: string;
-  description: string;
+  /** English */ dealer: string;             /** Japanese */ dealerRaw: string;
+  /** English */ location: string;           /** Japanese */ locationRaw: string;
+  /** English */ description: string;        /** Japanese */ descriptionRaw: string;
   images: string[];
   extractedAt: string;
 }
@@ -93,10 +91,9 @@ interface VehicleRecord {
 
 1. **Discover** — Uses Exa to find individual listing detail URLs from a brand page
 2. **Fetch** — Batch-fetches all listing pages as clean markdown via Exa
-3. **Extract** — LLM parses each page into structured `VehicleRecord` objects
+3. **Extract + Translate** — LLM parses each page into `VehicleRecord` objects with both raw Japanese (`*Raw` fields) and English translations
 4. **Normalize** — Parses Japanese price/mileage notation (万円, 万km) into numbers
-5. **Translate** — Converts Japanese fields (color, transmission, fuel type, body type, description) to English
-6. **Export** — Writes results as pretty-printed JSON
+5. **Export** — Writes results as pretty-printed JSON
 
 ## Development
 
