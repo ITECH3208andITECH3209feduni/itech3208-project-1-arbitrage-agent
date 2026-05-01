@@ -27,7 +27,7 @@ OPENROUTER_API_KEY=your-key         # https://openrouter.ai/keys
 Optional:
 
 ```bash
-OPENROUTER_MODEL=anthropic/claude-sonnet-4   # default model
+OPENROUTER_MODEL=deepseek/deepseek-v4-flash   # default model
 ```
 
 ## API Usage

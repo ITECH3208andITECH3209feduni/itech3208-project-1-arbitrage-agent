@@ -25,7 +25,7 @@ export async function crawl(config: CrawlConfig): Promise<CrawlResult> {
   const exaKey = process.env.EXA_API_KEY;
   if (!exaKey) throw new Error("EXA_API_KEY required");
 
-  const model = process.env.OPENROUTER_MODEL || "anthropic/claude-sonnet-4";
+  const model = process.env.OPENROUTER_MODEL || "deepseek/deepseek-v4-flash";
 
   // 1. Discover
   console.error(`[crawl] Discovering URLs...`);
