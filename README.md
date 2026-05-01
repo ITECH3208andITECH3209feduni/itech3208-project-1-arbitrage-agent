@@ -2,21 +2,18 @@
 
 Crawl [Goo-net](https://www.goo-net.com) used car listings with LLM-powered extraction. Batch-fetches listing pages via [Exa](https://exa.ai), extracts 15+ structured fields per vehicle, and auto-translates Japanese → English. Outputs JSON.
 
-[![npm version](https://img.shields.io/npm/v/goo-net-crawler)](https://www.npmjs.com/package/goo-net-crawler)
+A building-block library — import into a larger project, not a standalone CLI.
+
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Node >= 18](https://img.shields.io/badge/node-%3E%3D18-brightgreen)](package.json)
 
 ## Install
 
 ```bash
-npm install -g goo-net-crawler
+pnpm install
 ```
 
-Or as a library:
-
-```bash
-npm install goo-net-crawler
-```
+No global install — this is a library imported by a parent project.
 
 ## Prerequisites
 
@@ -33,35 +30,10 @@ Optional:
 OPENROUTER_MODEL=anthropic/claude-sonnet-4   # default model
 ```
 
-## CLI Usage
-
-```bash
-# Crawl by brand name
-goo-net-crawler --brand SUBARU --max 20 --out ./data
-
-# Crawl from a direct Goo-net brand URL
-goo-net-crawler --brand-url "https://www.goo-net.com/used_car/brand/toyota" --max 50
-```
-
-### Options
-
-| Flag | Description | Default |
-|------|-------------|---------|
-| `--brand <name>` | Car brand to crawl | — |
-| `--brand-url <url>` | Direct Goo-net brand page URL | — |
-| `--max <n>` | Max listings to process | `10` |
-| `--out <dir>` | Output directory | `./data` |
-| `--version` | Show version | — |
-| `--help`, `-h` | Show help | — |
-
-### Output
-
-Results are written to `<out>/vehicles.json` — an array of `VehicleRecord` objects with all Japanese fields translated to English.
-
 ## API Usage
 
 ```ts
-import { crawl } from "goo-net-crawler";
+import { crawl } from "./src/index.js";
 
 const result = await crawl({
   brand: "SUBARU",
@@ -72,6 +44,8 @@ const result = await crawl({
 console.log(`Extracted ${result.totalExtracted} / ${result.totalFound} records`);
 console.log(result.records); // VehicleRecord[]
 ```
+
+Results are written to `<outDir>/vehicles.json` — an array of `VehicleRecord` objects with all Japanese fields translated to English.
 
 ### Types
 
@@ -127,16 +101,15 @@ interface VehicleRecord {
 ## Development
 
 ```bash
-npm install
-npm run build    # TypeScript → dist/
-npm run test     # Vitest suite
-npm run lint     # Type-check only
+pnpm install
+pnpm test      # Vitest suite
 ```
 
-### Running without installing
+No build step — the project runs TypeScript directly via `vitest` (tests) and `tsx` (ad-hoc scripts).
 
 ```bash
-npx tsx bin/cli.ts --brand SUBARU --max 10
+# Ad-hoc crawl for testing
+npx tsx src/crawler-example.ts
 ```
 
 ## License
