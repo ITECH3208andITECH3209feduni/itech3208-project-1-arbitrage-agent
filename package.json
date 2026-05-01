@@ -21,6 +21,7 @@
     "node": ">=18.0.0"
   },
   "scripts": {
+    "crawl": "tsx src/crawler-example.ts",
     "test": "vitest run"
   },
   "dependencies": {
