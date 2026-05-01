@@ -3,12 +3,9 @@ import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
 
-// ── Mocks ───────────────────────────────────────────────────────
-
 const mockFetch = vi.fn();
 vi.stubGlobal("fetch", mockFetch);
 
-// Mock the LLM module
 const mockPrompt = vi.fn();
 vi.mock("../src/llm.js", () => ({
   prompt: mockPrompt,
@@ -29,194 +26,172 @@ afterEach(() => {
   delete process.env.OPENROUTER_API_KEY;
 });
 
+// ── Helpers ─────────────────────────────────────────────────────
+
+/** Number of brand pages in BRAND_PAGES["TOYOTA"]. */
+const TOYOTA_PAGES = 2;
+
+function stubDiscover(urls: string[], pageCount: number = TOYOTA_PAGES) {
+  const subpages = urls.map((u) => ({ url: u }));
+  for (let i = 0; i < pageCount; i++) {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        results: [{ url: `https://goo-net.com/brand/${i}`, subpages } as any],
+      }),
+    });
+  }
+}
+
+function stubFetch(urls: string[]) {
+  mockFetch.mockResolvedValueOnce({
+    ok: true,
+    json: async () => ({
+      results: urls.map((u) => ({
+        url: u,
+        text: `# Car\n100万円 1万km`,
+        title: "Car",
+      })),
+    }),
+  });
+}
+
+function record(url: string, overrides: Partial<Record<string, unknown>> = {}): Record<string, unknown> {
+  return {
+    url,
+    title: "Toyota Alphard",
+    titleRaw: "トヨタ アルファード",
+    priceRaw: "100万円",
+    mileageRaw: "1万km",
+    color: "White",
+    colorRaw: "ホワイト",
+    transmission: "Automatic",
+    transmissionRaw: "AT",
+    driveType: "4WD/AWD",
+    driveTypeRaw: "4WD",
+    engineSize: "2.5L",
+    fuelType: "Gasoline",
+    fuelTypeRaw: "ガソリン",
+    bodyType: "Minivan",
+    bodyTypeRaw: "ミニバン",
+    dealerRaw: "東京モータース",
+    dealer: "Tokyo Motors",
+    locationRaw: "東京都",
+    location: "Tokyo",
+    description: "Clean car.",
+    descriptionRaw: "キレイな車。",
+    ...overrides,
+  };
+}
+
 // ── Tests ───────────────────────────────────────────────────────
 
 describe("crawl", () => {
   it("throws when neither brand nor brandUrl provided", async () => {
     const { crawl } = await import("../src/crawler.js");
     await expect(
-      crawl({ max: 1, outDir: tmpDir })
+      crawl({ max: 1, outDir: tmpDir }),
     ).rejects.toThrow("Either --brand or --brand-url required");
   });
 
-  it("discovers URLs, fetches, extracts, exports JSON", async () => {
-    // Exa discovery response (search)
-    mockFetch.mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({
-        results: [
-          { url: "https://www.goo-net.com/car/1" },
-          { url: "https://www.goo-net.com/car/2" },
-        ],
-      }),
-    });
-    // Exa batch fetch response
-    mockFetch.mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({
-        results: [
-          { url: "https://www.goo-net.com/car/1", text: "Toyota 100万円 1万km", title: "Toyota" },
-          { url: "https://www.goo-net.com/car/2", text: "Honda 200万円 2万km", title: "Honda" },
-        ],
-      }),
-    });
-    // LLM extraction response
-    mockPrompt.mockResolvedValueOnce(JSON.stringify([
-      {
-        url: "https://www.goo-net.com/car/1",
-        title: "Toyota Alphard",
-        titleRaw: "トヨタ アルファード",
-        priceRaw: "100万円",
-        mileageRaw: "1万km",
-        color: "White",
-        colorRaw: "ホワイト",
-        transmission: "Automatic",
-        transmissionRaw: "AT",
-        driveType: "4WD/AWD",
-        driveTypeRaw: "4WD",
-        engineSize: "2.5L",
-        fuelType: "Gasoline",
-        fuelTypeRaw: "ガソリン",
-        bodyType: "Minivan",
-        bodyTypeRaw: "ミニバン",
-        dealerRaw: "東京モータース",
-        dealer: "Tokyo Motors",
-        locationRaw: "東京都",
-        location: "Tokyo",
-        description: "Clean car.",
-        descriptionRaw: "キレイな車。",
-      },
-      {
-        url: "https://www.goo-net.com/car/2",
-        title: "Honda Stepwgn",
-        titleRaw: "ホンダ ステップワゴン",
-        priceRaw: "200万円",
-        mileageRaw: "2万km",
-        color: "Black",
-        colorRaw: "ブラック",
-        transmission: "CVT",
-        transmissionRaw: "CVT",
-        driveType: "FWD",
-        driveTypeRaw: "FF",
-        engineSize: "2.0L",
-        fuelType: "Hybrid",
-        fuelTypeRaw: "ハイブリッド",
-        bodyType: "Minivan",
-        bodyTypeRaw: "ミニバン",
-        dealerRaw: "大阪カーズ",
-        dealer: "Osaka Cars",
-        locationRaw: "大阪府",
-        location: "Osaka",
-        description: "Well maintained.",
-        descriptionRaw: "よく整備されています。",
-      },
-    ]));
+  it("discovers via brand pages, fetches, extracts, exports JSON", async () => {
+    const urls = [
+      "https://www.goo-net.com/usedcar/spread/goo/13/1.html",
+      "https://www.goo-net.com/usedcar/spread/goo/13/2.html",
+    ];
+
+    stubDiscover(urls);
+    stubFetch(urls);
+    mockPrompt.mockResolvedValueOnce(JSON.stringify([record(urls[0]), record(urls[1])]));
 
     const { crawl } = await import("../src/crawler.js");
-    const result = await crawl({
-      brand: "Toyota Alphard",
-      max: 10,
-      outDir: tmpDir,
-    });
+    const result = await crawl({ brand: "TOYOTA", max: 10, outDir: tmpDir });
 
     expect(result.totalFound).toBe(2);
     expect(result.totalExtracted).toBe(2);
-    expect(result.records[0].title).toBe("Toyota Alphard");
-    expect(result.records[0].titleRaw).toBe("トヨタ アルファード");
     expect(result.records[0].price).toBe(1_000_000);
-    expect(result.records[1].title).toBe("Honda Stepwgn");
-    expect(result.records[1].titleRaw).toBe("ホンダ ステップワゴン");
-    expect(result.records[1].price).toBe(2_000_000);
 
-    const jsonPath = path.join(tmpDir, "vehicles.json");
-    expect(fs.existsSync(jsonPath)).toBe(true);
-    const parsed = JSON.parse(fs.readFileSync(jsonPath, "utf-8"));
-    expect(parsed).toHaveLength(2);
+    const file = path.join(tmpDir, "vehicles.json");
+    expect(fs.existsSync(file)).toBe(true);
+    expect(JSON.parse(fs.readFileSync(file, "utf-8"))).toHaveLength(2);
   });
 
-  it("handles empty discovery", async () => {
-    mockFetch.mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({ results: [] }),
-    });
+  it("parallelizes LLM calls across batches", async () => {
+    const urls = Array.from(
+      { length: 15 },
+      (_, i) => `https://www.goo-net.com/usedcar/spread/goo/13/${i}.html`,
+    );
+
+    stubDiscover(urls);
+    stubFetch(urls);
+    // 15 pages → 2 LLM batches (10 + 5)
+    mockPrompt.mockResolvedValueOnce(JSON.stringify(urls.slice(0, 10).map((u) => record(u))));
+    mockPrompt.mockResolvedValueOnce(JSON.stringify(urls.slice(10).map((u) => record(u))));
 
     const { crawl } = await import("../src/crawler.js");
-    const result = await crawl({
-      brand: "Nonexistent",
-      max: 10,
-      outDir: tmpDir,
-    });
+    const result = await crawl({ brand: "TOYOTA", max: 20, outDir: tmpDir });
+
+    expect(result.totalFound).toBe(15);
+    expect(result.totalExtracted).toBe(15);
+    expect(mockPrompt).toHaveBeenCalledTimes(2);
+  });
+
+  it("returns zero for unknown brand", async () => {
+    const { crawl } = await import("../src/crawler.js");
+    const result = await crawl({ brand: "UNKNOWN_XYZ", max: 10, outDir: tmpDir });
 
     expect(result.totalFound).toBe(0);
     expect(result.totalExtracted).toBe(0);
   });
 
-  it("respects max limit on discovered URLs", async () => {
-    mockFetch.mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({
-        results: [
-          { url: "https://www.goo-net.com/car/1" },
-          { url: "https://www.goo-net.com/car/2" },
-          { url: "https://www.goo-net.com/car/3" },
-        ],
-      }),
-    });
-    mockFetch.mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({
-        results: [{ url: "https://www.goo-net.com/car/1", text: "# Car 1\n100万円 1万km", title: "Car 1" }],
-      }),
-    });
-    mockPrompt.mockResolvedValueOnce(JSON.stringify([
-      {
-        url: "https://www.goo-net.com/car/1",
-        title: "Car 1", titleRaw: "車 1",
-        priceRaw: "100万円", mileageRaw: "1万km",
-        color: "Red", colorRaw: "レッド",
-        transmission: "Automatic", transmissionRaw: "AT",
-        driveType: "FWD", driveTypeRaw: "FF",
-        engineSize: "2.0L",
-        fuelType: "Gasoline", fuelTypeRaw: "ガソリン",
-        bodyType: "Sedan", bodyTypeRaw: "セダン",
-        dealerRaw: "Test Dealer", dealer: "Test Dealer",
-        locationRaw: "Tokyo", location: "Tokyo",
-        description: "Test.", descriptionRaw: "テスト。",
-      },
-    ]));
+  it("respects max limit", async () => {
+    const all = Array.from(
+      { length: 10 },
+      (_, i) => `https://www.goo-net.com/usedcar/spread/goo/13/${i}.html`,
+    );
+
+    stubDiscover(all);
+    // max=3 → only 3 fetched
+    stubFetch(all.slice(0, 3));
+    mockPrompt.mockResolvedValueOnce(JSON.stringify(all.slice(0, 3).map((u) => record(u))));
 
     const { crawl } = await import("../src/crawler.js");
-    const result = await crawl({
-      brand: "Test",
-      max: 1,
-      outDir: tmpDir,
-    });
+    const result = await crawl({ brand: "TOYOTA", max: 3, outDir: tmpDir });
 
-    expect(result.totalFound).toBe(1);
+    expect(result.totalFound).toBe(3);
+    expect(result.totalExtracted).toBe(3);
   });
 
   it("handles extraction failure gracefully", async () => {
-    mockFetch.mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({
-        results: [{ url: "https://www.goo-net.com/car/bad" }],
-      }),
-    });
-    mockFetch.mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({
-        results: [{ url: "https://www.goo-net.com/car/bad", text: "# Bad page", title: "Bad" }],
-      }),
-    });
+    const urls = ["https://www.goo-net.com/usedcar/spread/goo/13/bad.html"];
+
+    stubDiscover(urls);
+    stubFetch(urls);
     mockPrompt.mockResolvedValueOnce("[]");
 
     const { crawl } = await import("../src/crawler.js");
-    const result = await crawl({
-      brand: "Test",
-      max: 1,
-      outDir: tmpDir,
-    });
+    const result = await crawl({ brand: "TOYOTA", max: 1, outDir: tmpDir });
 
     expect(result.totalExtracted).toBe(0);
+  });
+
+  it("uses brandUrl directly (single page, no brand lookup)", async () => {
+    const custom = "https://www.goo-net.com/usedcar/brand-TOYOTA/certified/";
+    const urls = ["https://www.goo-net.com/usedcar/spread/goo/13/one.html"];
+
+    // Single discover call
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        results: [{ url: custom, subpages: urls.map((u) => ({ url: u })) } as any],
+      }),
+    });
+    stubFetch(urls);
+    mockPrompt.mockResolvedValueOnce(JSON.stringify([record(urls[0])]));
+
+    const { crawl } = await import("../src/crawler.js");
+    const result = await crawl({ brandUrl: custom, max: 5, outDir: tmpDir });
+
+    expect(result.totalExtracted).toBe(1);
   });
 });

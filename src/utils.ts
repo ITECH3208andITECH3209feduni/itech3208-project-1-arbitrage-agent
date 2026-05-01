@@ -27,3 +27,14 @@ export function isValidGooNetUrl(url: string): boolean {
     return false;
   }
 }
+
+/** Check if URL is an individual vehicle listing detail page. */
+export function isGooNetListingUrl(url: string): boolean {
+  if (!isValidGooNetUrl(url)) return false;
+  try {
+    const u = new URL(url);
+    return u.pathname.startsWith("/usedcar/spread/goo/") || u.pathname.startsWith("/usedcar/spread/goo_sort/");
+  } catch {
+    return false;
+  }
+}

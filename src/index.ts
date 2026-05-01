@@ -11,4 +11,5 @@ import "dotenv/config";
 export { crawl } from "./crawler.js";
 export { prompt, promptStreaming } from "./llm.js";
 export { discover, fetchBatch } from "./exa.js";
+export { BRAND_PAGES, getBrandPages } from "./brands.js";
 export type { CrawlConfig, CrawlResult, VehicleRecord } from "./types.js";
