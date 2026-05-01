@@ -108,8 +108,10 @@ pnpm test      # Vitest suite
 No build step — the project runs TypeScript directly via `vitest` (tests) and `tsx` (ad-hoc scripts).
 
 ```bash
-# Ad-hoc crawl for testing
-npx tsx src/crawler-example.ts
+# Dev CLI testing
+pnpm crawl -- --brand SUBARU --max 20 --out ./data
+# or directly
+npx tsx src/crawler-example.ts --brand SUBARU --max 20
 ```
 
 ## License
