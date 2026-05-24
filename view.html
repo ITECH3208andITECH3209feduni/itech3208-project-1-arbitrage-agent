@@ -1,410 +1,464 @@
 <!DOCTYPE html>
 <html lang="en">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Goo-net Vehicles</title>
-<style>
-  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-  body {
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-    background: #f5f5f5; color: #222; line-height: 1.5;
-  }
-  header {
-    background: #fff; border-bottom: 1px solid #ddd;
-    padding: 16px 24px; display: flex; justify-content: space-between; align-items: center;
-  }
-  header h1 { font-size: 18px; font-weight: 600; }
-  header .count { font-size: 14px; color: #888; }
-  /* ── Layout: sidebar + main ── */
-  .layout {
-    display: flex; min-height: calc(100vh - 57px);
-  }
-  .sidebar {
-    width: 240px; min-width: 240px;
-    background: #fff; border-right: 1px solid #e5e5e5;
-    padding: 20px 16px; overflow-y: auto;
-  }
-  .sidebar h3 {
-    font-size: 13px; font-weight: 600; text-transform: uppercase;
-    color: #888; letter-spacing: 0.5px; margin-bottom: 16px;
-  }
-  main {
-    flex: 1; padding: 24px;
-    max-width: calc(100vw - 240px);
-  }
-  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 16px; }
-  .card {
-    background: #fff; border-radius: 8px; border: 1px solid #e5e5e5;
-    padding: 16px; display: flex; flex-direction: column; gap: 10px;
-    transition: box-shadow 0.15s;
-  }
-  .card:hover { box-shadow: 0 2px 12px rgba(0,0,0,0.08); }
-  .card h2 { font-size: 15px; font-weight: 600; line-height: 1.3; }
-  .price { font-size: 20px; font-weight: 700; color: #c00; }
-  .specs { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 13px; color: #555; }
-  .specs span { white-space: nowrap; }
-  .dealer { font-size: 12px; color: #999; }
-  .description { font-size: 12px; color: #666; line-height: 1.4;
-    display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
-  .card a { font-size: 12px; color: #06c; text-decoration: none; word-break: break-all; }
-  .card a:hover { text-decoration: underline; }
-  .loading, .error { text-align: center; padding: 60px 24px; color: #888; }
-  .error { color: #c00; }
-  /* ── Filters (sidebar) ── */
-  .filters { display: flex; flex-direction: column; gap: 14px; }
-  .filter-group { display: flex; flex-direction: column; gap: 4px; }
-  .filter-group label {
-    font-size: 12px; font-weight: 500; color: #666;
-  }
-  .filters select, .filters input {
-    width: 100%; padding: 6px 10px; border: 1px solid #ccc; border-radius: 4px;
-    font-size: 13px; background: #fff;
-  }
-  .filter-reset {
-    width: 100%; margin-top: 4px; padding: 6px 0;
-    border: 1px solid #ccc; border-radius: 4px;
-    background: #fff; font-size: 12px; cursor: pointer; color: #666;
-    transition: background 0.15s;
-  }
-  .filter-reset:hover { background: #f0f0f0; }
-  .no-results { grid-column: 1 / -1; text-align: center; padding: 40px; color: #888; }
-
-  /* ── Carousel ── */
-  .carousel {
-    position: relative; width: 100%; aspect-ratio: 4/3;
-    background: #eee; border-radius: 6px; overflow: hidden; cursor: pointer;
-  }
-  .carousel img {
-    width: 100%; height: 100%; object-fit: cover;
-    display: block; transition: opacity 0.25s;
-  }
-  .carousel .placeholder {
-    width: 100%; height: 100%; display: flex; align-items: center;
-    justify-content: center; color: #bbb; font-size: 13px;
-  }
-  .carousel .arrow {
-    position: absolute; top: 50%; transform: translateY(-50%);
-    width: 30px; height: 30px; border-radius: 50%;
-    background: rgba(255,255,255,0.85); border: none;
-    font-size: 16px; cursor: pointer; display: flex;
-    align-items: center; justify-content: center; color: #333;
-    opacity: 0; transition: opacity 0.2s; z-index: 1;
-  }
-  .carousel:hover .arrow { opacity: 1; }
-  .carousel .arrow.prev { left: 6px; }
-  .carousel .arrow.next { right: 6px; }
-  .carousel .dots {
-    position: absolute; bottom: 8px; left: 50%; transform: translateX(-50%);
-    display: flex; gap: 4px; z-index: 1;
-  }
-  .carousel .dot {
-    width: 6px; height: 6px; border-radius: 50%;
-    background: rgba(255,255,255,0.5); transition: background 0.2s;
-  }
-  .carousel .dot.active { background: #fff; }
-
-  /* ── Lightbox ── */
-  .lightbox {
-    display: none; position: fixed; inset: 0; z-index: 1000;
-    background: rgba(0,0,0,0.92); align-items: center; justify-content: center;
-  }
-  .lightbox.open { display: flex; }
-  .lightbox img {
-    max-width: 90vw; max-height: 85vh; object-fit: contain;
-    border-radius: 4px; user-select: none;
-  }
-  .lightbox .lb-arrow {
-    position: absolute; top: 50%; transform: translateY(-50%);
-    width: 48px; height: 48px; border-radius: 50%;
-    background: rgba(255,255,255,0.15); border: none;
-    font-size: 24px; cursor: pointer; color: #fff;
-    display: flex; align-items: center; justify-content: center;
-    transition: background 0.2s;
-  }
-  .lightbox .lb-arrow:hover { background: rgba(255,255,255,0.3); }
-  .lightbox .lb-prev { left: 20px; }
-  .lightbox .lb-next { right: 20px; }
-  .lightbox .lb-close {
-    position: absolute; top: 16px; right: 20px;
-    width: 40px; height: 40px; border-radius: 50%;
-    background: rgba(255,255,255,0.15); border: none;
-    font-size: 22px; cursor: pointer; color: #fff;
-    display: flex; align-items: center; justify-content: center;
-    transition: background 0.2s;
-  }
-  .lightbox .lb-close:hover { background: rgba(255,255,255,0.3); }
-  .lightbox .lb-counter {
-    position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%);
-    color: #ccc; font-size: 14px;
-  }
-</style>
-</head>
-<body>
-<header>
-  <h1>Vehicles</h1>
-  <span class="count"></span>
-</header>
-<div class="layout">
-  <aside class="sidebar" id="sidebar">
-    <h3>Filters</h3>
-    <div class="filters" id="filters">
-      <div class="filter-group">
-        <label for="search">Search</label>
-        <input type="text" id="search" placeholder="Title, dealer...">
-      </div>
-      <div class="filter-group">
-        <label for="fuel">Fuel type</label>
-        <select id="fuel"><option value="">Any</option></select>
-      </div>
-      <div class="filter-group">
-        <label for="transmission">Transmission</label>
-        <select id="transmission"><option value="">Any</option></select>
-      </div>
-      <div class="filter-group">
-        <label for="drive">Drive type</label>
-        <select id="drive"><option value="">Any</option></select>
-      </div>
-      <div class="filter-group">
-        <label for="body">Body type</label>
-        <select id="body"><option value="">Any</option></select>
-      </div>
-      <div class="filter-group">
-        <label for="yearMin">Min year</label>
-        <input type="number" id="yearMin" placeholder="1990+" min="1990" max="2030">
-      </div>
-      <button class="filter-reset" id="filterReset">Clear filters</button>
-    </div>
-  </aside>
-  <main>
-  <div class="grid" id="grid"></div>
-</main>
-</div>
-
-<!-- Lightbox -->
-<div class="lightbox" id="lightbox">
-  <button class="lb-close" id="lbClose">&times;</button>
-  <button class="lb-arrow lb-prev" id="lbPrev">&lsaquo;</button>
-  <img id="lbImg" src="" alt="">
-  <button class="lb-arrow lb-next" id="lbNext">&rsaquo;</button>
-  <span class="lb-counter" id="lbCounter"></span>
-</div>
-
-<script>
-// ── State ──
-const lb = {
-  el: document.getElementById("lightbox"),
-  img: document.getElementById("lbImg"),
-  counter: document.getElementById("lbCounter"),
-  images: [], idx: 0,
-};
-
-(function initLightbox() {
-  document.getElementById("lbClose").addEventListener("click", lbClose);
-  document.getElementById("lbPrev").addEventListener("click", () => lbNav(-1));
-  document.getElementById("lbNext").addEventListener("click", () => lbNav(1));
-  lb.el.addEventListener("click", (e) => { if (e.target === lb.el) lbClose(); });
-  document.addEventListener("keydown", (e) => {
-    if (!lb.el.classList.contains("open")) return;
-    if (e.key === "Escape") lbClose();
-    if (e.key === "ArrowLeft") lbNav(-1);
-    if (e.key === "ArrowRight") lbNav(1);
-  });
-})();
-
-function lbOpen(images, idx) {
-  lb.images = images; lb.idx = idx;
-  lb.el.classList.add("open");
-  document.body.style.overflow = "hidden";
-  lbShow();
-}
-function lbClose() {
-  lb.el.classList.remove("open");
-  document.body.style.overflow = "";
-}
-function lbNav(dir) {
-  if (!lb.images.length) return;
-  lb.idx = (lb.idx + dir + lb.images.length) % lb.images.length;
-  lbShow();
-}
-function lbShow() {
-  lb.img.src = lb.images[lb.idx];
-  lb.counter.textContent = `${lb.idx + 1} / ${lb.images.length}`;
-  document.getElementById("lbPrev").style.visibility = lb.images.length > 1 ? "" : "hidden";
-  document.getElementById("lbNext").style.visibility = lb.images.length > 1 ? "" : "hidden";
-}
-
-// ── Carousel component (returns HTML string) ──
-function carouselHTML(images, uid) {
-  if (!images || !images.length) {
-    return `<div class="carousel"><div class="placeholder">No images</div></div>`;
-  }
-  const dots = images.map((_, i) =>
-    `<span class="dot${i === 0 ? " active" : ""}" data-dot="${i}"></span>`
-  ).join("");
-  return `
-    <div class="carousel" data-uid="${uid}" data-idx="0">
-      <img src="${escAttr(images[0])}" alt="" loading="lazy">
-      ${images.length > 1 ? `
-        <button class="arrow prev">&lsaquo;</button>
-        <button class="arrow next">&rsaquo;</button>
-        <div class="dots">${dots}</div>
-      ` : ""}
-    </div>`;
-}
-
-// ── Carousel logic (delegated) ──
-function initCarousel(carousel) {
-  if (carousel.dataset.bound) return;
-  carousel.dataset.bound = "1";
-  const img = carousel.querySelector("img");
-  const dots = carousel.querySelectorAll(".dot");
-  const images = JSON.parse(carousel.dataset.images || "[]");
-  if (!img || !images.length) return;
-
-  function set(idx) {
-    carousel.dataset.idx = idx;
-    img.src = images[idx];
-    dots.forEach((d, i) => d.classList.toggle("active", i === idx));
-  }
-
-  const prev = carousel.querySelector(".arrow.prev");
-  const next = carousel.querySelector(".arrow.next");
-  if (prev) prev.addEventListener("click", (e) => {
-    e.stopPropagation();
-    const idx = (Number(carousel.dataset.idx) - 1 + images.length) % images.length;
-    set(idx);
-  });
-  if (next) next.addEventListener("click", (e) => {
-    e.stopPropagation();
-    const idx = (Number(carousel.dataset.idx) + 1) % images.length;
-    set(idx);
-  });
-  dots.forEach(d => d.addEventListener("click", (e) => {
-    e.stopPropagation();
-    set(Number(d.dataset.dot));
-  }));
-
-  carousel.addEventListener("click", () => {
-    lbOpen(images, Number(carousel.dataset.idx));
-  });
-}
-
-// ── Main ──
-(async () => {
-  const grid = document.getElementById("grid");
-  const count = document.querySelector(".count");
-
-  function show(html) { grid.innerHTML = html; }
-
-  try {
-    const res = await fetch("data/vehicles.json");
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const vehicles = await res.json();
-    let uidCounter = 0;
-
-    function render(vehs) {
-      count.textContent = `${vehs.length} vehicle${vehs.length !== 1 ? "s" : ""}`;
-      if (!vehs.length) {
-        show('<div class="no-results">No matching vehicles</div>');
-        return;
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Arbitrage Agent</title>
+    <style>
+      *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+      :root{
+        --navy:#111827;--navy2:#1a2540;--cyan:#38bdf8;--cyan-dim:#0ea5e9;
+        --bg:#f0f2f5;--card:#ffffff;--sidebar:#ffffff;--border:#d1d5db;
+        --border-light:#e5e7eb;--text:#111827;--muted:#6b7280;
+        --profit:#16a34a;--profit-bg:#f0fdf4;--red:#dc2626;
+        --sidebar-w:200px;--header-h:60px;
       }
-      show(vehs.map(v => {
-        const uid = "v" + (uidCounter++);
-        return `
-        <div class="card">
-          ${carouselHTML(v.images, uid)}
-          <h2>${esc(v.title)}</h2>
-          <div class="price">¥${v.price?.toLocaleString() ?? "—"}</div>
-          <div class="specs">
-            <span>${v.year ?? "—"}年</span>
-            <span>${v.mileage ? (v.mileage/1000).toFixed(1) + "万km" : "—"}</span>
-            <span>${esc(v.engineSize) || "—"}</span>
-            <span>${esc(v.transmission) || "—"}</span>
-            <span>${esc(v.driveType) || "—"}</span>
-            <span>${esc(v.fuelType) || "—"}</span>
-            <span>${esc(v.color) || "—"}</span>
-          </div>
-          <div class="dealer">${esc(v.dealer)} · ${esc(v.location)}</div>
-          <div class="description">${esc(v.description)}</div>
-          <a href="${esc(v.url)}" target="_blank" rel="noopener">View listing →</a>
+      body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:var(--bg);color:var(--text);height:100vh;display:flex;flex-direction:column;overflow:hidden}
+
+      /* Header */
+      .top-bar{height:var(--header-h);background:var(--navy);display:grid;grid-template-columns:220px 1fr 290px;align-items:center;gap:16px;padding:0 16px;border-bottom:2px solid var(--cyan);flex-shrink:0}
+      .sort-group label,.search-group label{font-size:10px;color:#9ca3af;letter-spacing:.5px;text-transform:uppercase;display:block;margin-bottom:3px}
+      .sort-group select{background:#1e2d45;color:#e5e7eb;border:1px solid #374151;border-radius:6px;padding:5px 28px 5px 10px;font-size:13px;appearance:none;cursor:pointer;width:160px;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%239ca3af' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 10px center}
+      .sort-group select:focus,.search-group input:focus{outline:none;border-color:var(--cyan)}
+      .site-title{text-align:center;font-size:28px;font-weight:800;color:#fff;letter-spacing:-.5px}
+      .search-group input{width:100%;background:#1e2d45;color:#e5e7eb;border:1px solid #374151;border-radius:6px;padding:5px 12px;font-size:13px}
+      .search-group input::placeholder{color:#6b7280}
+
+      /* Layout */
+      .layout{display:flex;flex:1;overflow:hidden}
+
+      /* Sidebar */
+      .sidebar{width:var(--sidebar-w);background:var(--sidebar);border-right:1px solid var(--border);overflow-y:auto;flex-shrink:0;padding:14px 12px}
+      .sidebar h2{font-size:18px;font-weight:800;margin-bottom:14px}
+      .filter-section{margin-bottom:13px}
+      .filter-section h3{font-size:12px;font-weight:700;margin-bottom:5px}
+      .filter-input{width:100%;border:1px solid var(--border);border-radius:5px;padding:5px 8px;font-size:12px;color:var(--text);background:#fff}
+      .filter-input:focus{outline:none;border-color:var(--cyan-dim)}
+      .filter-input::placeholder{color:#9ca3af}
+      .check-list{display:flex;flex-direction:column;gap:4px}
+      .check-item{display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer;color:var(--text)}
+      .check-item input[type=checkbox]{accent-color:var(--cyan-dim);width:13px;height:13px;cursor:pointer}
+      .see-more{font-size:11px;color:var(--cyan-dim);cursor:pointer;margin-top:4px;display:inline-block}
+      .see-more:hover{text-decoration:underline}
+
+      /* Main */
+      main{flex:1;overflow-y:auto;padding:14px}
+      .grid-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
+      .grid-header .count{font-size:13px;color:var(--muted)}
+      .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+
+      /* Cards */
+      .card{background:var(--card);border:1px solid var(--border);border-radius:10px;overflow:hidden;cursor:pointer;transition:box-shadow .15s,transform .1s}
+      .card:hover{box-shadow:0 4px 20px rgba(0,0,0,.1);transform:translateY(-1px)}
+      .card-img{width:100%;aspect-ratio:16/10;object-fit:cover;display:block;background:#e5e7eb}
+      .card-img-placeholder{width:100%;aspect-ratio:16/10;background:#e5e7eb;display:flex;align-items:center;justify-content:center;color:#9ca3af;font-size:12px}
+      .card-body{padding:10px 12px}
+      .card-name{font-size:14px;font-weight:700;margin-bottom:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+      .card-make{font-size:12px;color:var(--muted);margin-bottom:8px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+      .card-rows{display:flex;flex-direction:column;gap:3px}
+      .card-row{display:flex;justify-content:space-between;font-size:11.5px;gap:4px}
+      .card-row .lbl{color:var(--muted);flex-shrink:0}
+      .card-row .val{font-weight:500;text-align:right}
+      .profit-val{color:var(--profit);font-weight:700}
+      .profit-neg{color:var(--red);font-weight:700}
+      .no-results{grid-column:1/-1;text-align:center;padding:60px;color:var(--muted)}
+      .loading{grid-column:1/-1;text-align:center;padding:60px;color:var(--muted);font-size:14px}
+
+      /* Modal overlay */
+      .modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:100;align-items:center;justify-content:center}
+      .modal-overlay.open{display:flex}
+      .modal{background:#fff;border-radius:12px;overflow:hidden;width:min(960px,96vw);max-height:92vh;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,.3)}
+      .modal-header{background:var(--navy);padding:12px 18px;display:flex;align-items:center;justify-content:space-between;border-bottom:2px solid var(--cyan)}
+      .modal-header h2{color:#fff;font-size:22px;font-weight:800}
+      .modal-close{background:none;border:none;color:#9ca3af;cursor:pointer;font-size:22px;line-height:1;padding:2px 6px;border-radius:4px}
+      .modal-close:hover{background:#1e2d45;color:#fff}
+      .modal-body{flex:1;overflow-y:auto;display:grid;grid-template-columns:270px 1fr 210px;gap:0}
+      .modal-col{padding:14px 16px;border-right:1px solid var(--border-light)}
+      .modal-col:last-child{border-right:none}
+      .modal-car-img{width:100%;border-radius:8px;object-fit:cover;aspect-ratio:4/3;display:block;background:#e5e7eb;margin-bottom:12px}
+      .modal-section-title{font-size:15px;font-weight:800;margin-bottom:10px}
+      .detail-row{display:flex;justify-content:space-between;gap:8px;padding:3.5px 0;border-bottom:1px solid #f3f4f6;font-size:12px}
+      .detail-row:last-of-type{border-bottom:none}
+      .detail-label{color:var(--muted);flex-shrink:0}
+      .detail-val{font-weight:500;text-align:right;word-break:break-all}
+      .detail-val.profit{color:var(--profit);font-weight:700}
+      .detail-val.price{color:var(--navy);font-weight:700}
+      .est-note{font-size:10px;color:var(--muted);margin-top:8px}
+
+      /* Bids */
+      .bids-list{display:flex;flex-direction:column;gap:6px}
+      .bid-item{background:#f9fafb;border:1px solid var(--border-light);border-radius:6px;padding:7px 10px;font-size:11.5px}
+      .bid-item .bid-amount{font-weight:700;font-size:13px}
+      .bid-item .bid-meta{color:var(--muted);margin-top:1px}
+
+      /* Make bid bar */
+      .make-bid-bar{border-top:1px solid var(--border-light);padding:10px 16px;background:#f9fafb;display:flex;align-items:center;gap:10px;flex-shrink:0}
+      .make-bid-bar label{font-size:14px;font-weight:800;white-space:nowrap}
+      .bid-label-bold{font-size:14px;font-weight:800;white-space:nowrap}
+      .bid-amount-wrap{flex:1;display:flex;align-items:center;border:1px solid var(--border);border-radius:6px;overflow:hidden;background:#fff}
+      .bid-prefix{padding:0 10px;font-size:13px;font-weight:600;color:var(--muted);border-right:1px solid var(--border);height:36px;display:flex;align-items:center}
+      .bid-input{flex:1;border:none;padding:0 10px;font-size:13px;height:36px;outline:none;color:var(--text)}
+      .bid-input::placeholder{color:#9ca3af}
+      .submit-btn{background:var(--navy);color:#fff;border:none;border-radius:6px;padding:0 20px;height:36px;font-size:14px;font-weight:700;cursor:pointer;white-space:nowrap}
+      .submit-btn:hover{background:var(--navy2)}
+      .back-btn{border:1px solid var(--border);background:#fff;border-radius:6px;padding:0 14px;height:36px;font-size:13px;cursor:pointer;color:var(--text)}
+      .back-btn:hover{background:var(--bg)}
+
+      /* Scrollbar */
+      ::-webkit-scrollbar{width:5px;height:5px}
+      ::-webkit-scrollbar-track{background:transparent}
+      ::-webkit-scrollbar-thumb{background:#d1d5db;border-radius:99px}
+    </style>
+  </head>
+  <body>
+    <header class="top-bar">
+      <div class="sort-group">
+        <label>Sort Listings</label>
+        <select id="sortSel">
+          <option value="">Select Sort</option>
+          <option value="price-asc">Price: Low to High</option>
+          <option value="price-desc">Price: High to Low</option>
+          <option value="profit-desc">Est. Profit: High to Low</option>
+          <option value="profit-asc">Est. Profit: Low to High</option>
+          <option value="mileage-asc">Odometer: Low to High</option>
+          <option value="year-desc">Year: Newest First</option>
+        </select>
+      </div>
+      <h1 class="site-title">Arbitrage Agent</h1>
+      <div class="search-group">
+        <label>Search Live Auctions</label>
+        <input type="text" id="searchInput" placeholder="Search Here">
+      </div>
+    </header>
+
+    <div class="layout">
+
+      <aside class="sidebar">
+        <h2>Filters</h2>
+        <div class="filter-section">
+          <h3>Min Price:</h3>
+          <input class="filter-input" type="number" id="fMinPrice" placeholder="Min Price Here">
         </div>
-      `}).join(""));
-      // Bind carousel logic + stash images
-      document.querySelectorAll(".carousel[data-uid]").forEach(c => {
-        const uid = c.dataset.uid;
-        const card = c.closest(".card");
-        if (!card) return;
-        const idx = [...grid.children].indexOf(card);
-        const v = vehs[idx];
-        if (v) {
-          c.dataset.images = JSON.stringify(v.images || []);
-          initCarousel(c);
+        <div class="filter-section">
+          <h3>Max Price:</h3>
+          <input class="filter-input" type="number" id="fMaxPrice" placeholder="Max Price Here">
+        </div>
+        <div class="filter-section">
+          <h3>Min Estimated Profit:</h3>
+          <input class="filter-input" type="number" id="fMinProfit" placeholder="Enter $ Here">
+        </div>
+        <div class="filter-section">
+          <h3>Max Odometer</h3>
+          <input class="filter-input" type="number" id="fMaxOdo" placeholder="Enter KM Here">
+        </div>
+        <!-- Currently unused
+        <div class="filter-section">
+          <h3>Condition:</h3>
+          <div class="check-list" id="conditionList">
+            <label class="check-item"><input type="checkbox" value="new" checked> New</label>
+            <label class="check-item"><input type="checkbox" value="like-new" checked> Like New</label>
+            <label class="check-item"><input type="checkbox" value="used" checked> Used</label>
+            <label class="check-item"><input type="checkbox" value="other" checked> Other</label>
+          </div>
+        </div> -->
+        <div class="filter-section">
+          <h3>Transmission:</h3>
+          <div class="check-list" id="transList">
+            <label class="check-item"><input type="checkbox" value="auto" checked> Auto</label>
+            <label class="check-item"><input type="checkbox" value="manual" checked> Manual</label>
+            <label class="check-item"><input type="checkbox" value="other" checked> Other</label>
+          </div>
+        </div>
+        <div class="filter-section">
+          <h3>Make:</h3>
+          <div class="check-list" id="makeList"></div>
+        </div>
+        <div class="filter-section" id="modelSection" style="display:none">
+          <h3>Model</h3>
+          <div class="check-list" id="modelList"></div>
+        </div>
+      </aside>
+
+      <main>
+        <div class="grid-header">
+          <span class="count" id="countLabel">Loading…</span>
+        </div>
+        <div class="grid" id="grid">
+          <div class="loading">Loading vehicle listings…</div>
+        </div>
+      </main>
+    </div>
+
+    <!-- Detail Modal -->
+    <div class="modal-overlay" id="modalOverlay">
+      <div class="modal">
+        <div class="modal-header">
+          <h2>Auction Details</h2>
+          <button class="modal-close" id="modalClose">&#x2715;</button>
+        </div>
+        <div class="modal-body" id="modalBody"></div>
+        <div class="make-bid-bar">
+          <button class="back-btn" id="backBtn">Auction Browser</button>
+          <label>Make Bid</label>
+          <span class="bid-label-bold">Bid:</span>
+          <div class="bid-amount-wrap">
+            <span class="bid-prefix">AUD</span>
+            <input class="bid-input" type="number" placeholder="Enter Bid Amount (AUD)" id="bidInput">
+          </div>
+          <button class="submit-btn" id="submitBidBtn">Submit Bid</button>
+        </div>
+      </div>
+    </div>
+
+    <script>
+    const JPY_AUD = 0.0099;
+    const IMPORT_RATE = 0.32;
+    const RESALE_MULT = 1.55;
+
+    function fmtAUD(n){if(n==null)return'—';return'$'+Math.round(n).toLocaleString('en-AU')}
+    function fmtKm(n){if(!n)return'—';return Number(n).toLocaleString()+'km'}
+    function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
+    function hashStr(s){let h=0;for(let i=0;i<s.length;i++){h=(Math.imul(31,h)+s.charCodeAt(i))|0}return Math.abs(h)}
+    function fmtDate(daysOffset){const d=new Date();d.setDate(d.getDate()+daysOffset);return d.toLocaleDateString('en-AU',{day:'2-digit',month:'2-digit',year:'numeric'})}
+
+    const DEMO=[
+      {_title:'Toyota 86 GT Limited',_make:'Toyota',_model:'86',_year:2019,_audPrice:11167,_km:34000,_trans:'6-Speed AT',_color:'Azurite Blue',_body:'Coupe',_fuel:'Gasoline',_drive:'RWD',_engine:'2000cc',_doors:2,_seats:4,_dealer:'Yonrinkan Shinkawa',_location:'Hokkaido',_condition:'Used',_desc:'GT Limited cold weather spec with rear camera, Nav/TV.',_url:'https://www.goo-net.com/usedcar/spread/goo/10/700030247130260401001.html',_imgs:['https://picture1.goo-net.com/7000302471/30260401/J/70003024713026040100100.jpg']},
+      {_title:'Honda Civic Type R',_make:'Honda',_model:'Civic',_year:2022,_audPrice:21285,_km:12000,_trans:'Manual',_color:'Championship White',_body:'Hatchback',_fuel:'Gasoline',_drive:'FWD',_engine:'2000cc',_doors:5,_seats:4,_dealer:'Honda Cars Tokyo',_location:'Tokyo',_condition:'Like New',_desc:'Low mileage Type R, full service history, one owner.',_url:'#',_imgs:[]},
+      {_title:'Nissan GT-R Premium',_make:'Nissan',_model:'GT-R',_year:2020,_audPrice:47520,_km:28000,_trans:'Automatic',_color:'Brilliant White Pearl',_body:'Coupe',_fuel:'Gasoline',_drive:'4WD/AWD',_engine:'3799cc',_doors:2,_seats:4,_dealer:'Nissan Prince Yokohama',_location:'Kanagawa',_condition:'Used',_desc:'GT-R Premium with full dealer history.',_url:'#',_imgs:[]},
+      {_title:'Toyota Land Cruiser 200',_make:'Toyota',_model:'Land Cruiser',_year:2018,_audPrice:64350,_km:55000,_trans:'Automatic',_color:'Graphite',_body:'SUV',_fuel:'Diesel',_drive:'4WD/AWD',_engine:'4608cc',_doors:5,_seats:8,_dealer:'Toyota Aichi Main',_location:'Aichi',_condition:'Used',_desc:'Land Cruiser 200 VX diesel with full service records.',_url:'#',_imgs:[]},
+      {_title:'Mazda MX-5 NR-A',_make:'Mazda',_model:'MX-5',_year:2023,_audPrice:18315,_km:8000,_trans:'Manual',_color:'Soul Red Crystal',_body:'Convertible',_fuel:'Gasoline',_drive:'RWD',_engine:'1998cc',_doors:2,_seats:2,_dealer:'Mazda Hiroshima Chuo',_location:'Hiroshima',_condition:'New',_desc:'Near-new MX-5 NR-A track-focused variant.',_url:'#',_imgs:[]},
+      {_title:'Subaru WRX STI Type S',_make:'Subaru',_model:'WRX STI',_year:2021,_audPrice:31680,_km:19000,_trans:'Manual',_color:'World Rally Blue',_body:'Sedan',_fuel:'Gasoline',_drive:'4WD/AWD',_engine:'1994cc',_doors:4,_seats:5,_dealer:'Subaru Shinshu Nagano',_location:'Nagano',_condition:'Used',_desc:'WRX STI Type S final edition with BBS wheels and Brembo brakes.',_url:'#',_imgs:[]},
+    ];
+
+    function calcDerived(v){
+      const a=v._audPrice||0;
+      v._importFees=a?Math.round(a*IMPORT_RATE):null;
+      v._resale=a?Math.round(a*(1+IMPORT_RATE)*RESALE_MULT):null;
+      v._profit=a?Math.round(v._resale-a*(1+IMPORT_RATE)):null;
+      return v;
+    }
+
+    function normalise(raw){
+      const jpyTotal=raw.total_price_jpy||raw.base_price_jpy;
+      let aud=null;
+      if(jpyTotal)aud=Math.round(Number(jpyTotal)*JPY_AUD);
+      else if(raw.total_price_jpy_manen){const m=String(raw.total_price_jpy_manen).match(/([\d.]+)/);if(m)aud=Math.round(parseFloat(m[1])*10000*JPY_AUD);}
+      else if(raw.priceRaw){const m=String(raw.priceRaw).match(/([\d.]+)\s*万円/);if(m)aud=Math.round(parseFloat(m[1])*10000*JPY_AUD);}
+      else if(raw.price)aud=Math.round(Number(raw.price)*JPY_AUD);
+      let km=raw.mileage_km||raw.mileage||null;
+      if(!km&&raw.mileageRaw){const m=String(raw.mileageRaw).match(/([\d.]+)\s*万km/i);if(m)km=Math.round(parseFloat(m[1])*10000);else{const m2=String(raw.mileageRaw).match(/([\d,]+)\s*km/i);if(m2)km=parseInt(m2[1].replace(/,/g,''));}}
+      const titleEn=raw.title||raw.page_title_en||raw.titleRaw||'';
+      const parts=titleEn.split(' ');
+      let yr=raw.year||null;
+      if(!yr&&raw.model_year){const m=String(raw.model_year).match(/(\d{4})/);if(m)yr=parseInt(m[1]);}
+      if(!yr&&raw.model_year_en){const m=String(raw.model_year_en).match(/(\d{4})/);if(m)yr=parseInt(m[1]);}
+      const v={
+        _title:titleEn||raw.headline_en||'Unknown',
+        _make:raw.make||parts[0]||'—',
+        _model:raw.model||(parts.slice(1,3).join(' '))||'—',
+        _year:yr,
+        _audPrice:aud,
+        _km:km?Number(km):null,
+        _trans:raw.transmission||raw.transmissionRaw||'—',
+        _color:raw.color||raw.body_color_en||raw.colorRaw||'—',
+        _body:raw.bodyType||raw.bodyTypeRaw||'—',
+        _fuel:raw.fuelType||raw.fuelTypeRaw||'—',
+        _drive:raw.driveType||raw.driveTypeRaw||'—',
+        _engine:raw.engineSize||raw.engine_displacement_en||raw.engine_displacement||'—',
+        _doors:raw.doors||null,
+        _seats:raw.seats||null,
+        _dealer:raw.dealer||raw.dealer_name_en||raw.dealerRaw||'—',
+        _location:raw.location||raw.dealer_address_en||'—',
+        _condition:raw.repair_history_en==='no'||raw.repair_history==='なし'?'No Repairs':raw.repair_history_en||'Used',
+        _desc:raw.description||raw.descriptionRaw||raw.vehicle_summary_en||'—',
+        _url:raw.url||raw.canonical_url||'#',
+        _imgs:raw.images&&raw.images.length?raw.images:(raw.main_image_url?[raw.main_image_url]:[]),
+      };
+      return calcDerived(v);
+    }
+
+    let allV=[],dispV=[],makes=[],makesExp=false;
+
+    async function loadData(){
+      let loaded=false;
+      for(const path of['data/vehicles.json','goo_batch_output.json']){
+        try{
+          const r=await fetch(path);if(!r.ok)continue;
+          const raw=await r.json();
+          const arr=Array.isArray(raw)?raw:(raw.records||[]);
+          if(arr.length){allV=arr.map(normalise);loaded=true;break;}
+        }catch(_){}
+      }
+      if(!loaded)allV=DEMO.map(v=>calcDerived({...v}));
+      buildMakes();applyFilters();bindEvents();
+    }
+
+    function buildMakes(){
+      makes=[...new Set(allV.map(v=>v._make).filter(Boolean))].sort();
+      const list=document.getElementById('makeList');
+      const shown=makesExp?makes:makes.slice(0,7);
+      list.innerHTML=shown.map(m=>`<label class="check-item"><input type="checkbox" class="mk" value="${esc(m)}" checked> ${esc(m)}</label>`).join('');
+      if(makes.length>7){
+        const s=document.createElement('span');s.className='see-more';
+        s.textContent=makesExp?'Show less':`See more (${makes.length-7})`;
+        s.onclick=()=>{makesExp=!makesExp;buildMakes();buildModels();applyFilters()};
+        list.appendChild(s);
+      }
+      list.querySelectorAll('.mk').forEach(c=>c.addEventListener('change',()=>{buildModels();applyFilters()}));
+      buildModels();
+    }
+
+    function buildModels(){
+      const cm=checkedMakes();
+      const mods=[...new Set(allV.filter(v=>cm.includes(v._make)).map(v=>v._model).filter(Boolean))].sort();
+      const sec=document.getElementById('modelSection');
+      const list=document.getElementById('modelList');
+      if(mods.length){
+        sec.style.display='';
+        list.innerHTML=mods.map(m=>`<label class="check-item"><input type="checkbox" class="md" value="${esc(m)}" checked> ${esc(m)}</label>`).join('');
+        list.querySelectorAll('.md').forEach(c=>c.addEventListener('change',applyFilters));
+      }else sec.style.display='none';
+    }
+
+    function checkedMakes(){return[...document.querySelectorAll('.mk:checked')].map(c=>c.value)}
+    function checkedModels(){return[...document.querySelectorAll('.md:checked')].map(c=>c.value)}
+
+    function applyFilters(){
+      const minP=parseFloat(document.getElementById('fMinPrice').value)||0;
+      const maxP=parseFloat(document.getElementById('fMaxPrice').value)||Infinity;
+      const minPr=parseFloat(document.getElementById('fMinProfit').value)||-Infinity;
+      const maxO=parseFloat(document.getElementById('fMaxOdo').value)||Infinity;
+      const q=document.getElementById('searchInput').value.toLowerCase().trim();
+      const cm=checkedMakes();const cdm=checkedModels();
+      const tr=[...document.querySelectorAll('#transList input:checked')].map(c=>c.value);
+
+      let f=allV.filter(v=>{
+        if(v._audPrice!=null&&v._audPrice<minP)return false;
+        if(v._audPrice!=null&&v._audPrice>maxP)return false;
+        if(v._profit!=null&&v._profit<minPr)return false;
+        if(v._km!=null&&v._km>maxO)return false;
+        if(cm.length&&!cm.includes(v._make))return false;
+        if(cdm.length&&!cdm.includes(v._model))return false;
+        if(tr.length){
+          const t=String(v._trans).toLowerCase();
+          const ok=(tr.includes('auto')&&(t.includes('at')||t.includes('cvt')||t.includes('auto')))||(tr.includes('manual')&&(t.includes('mt')||t.includes('manual')))||tr.includes('other');
+          if(!ok)return false;
         }
-      });
-    }
-
-    // --- Filtering ---
-    const $search = document.getElementById("search");
-    const $fuel = document.getElementById("fuel");
-    const $transmission = document.getElementById("transmission");
-    const $drive = document.getElementById("drive");
-    const $body = document.getElementById("body");
-    const $yearMin = document.getElementById("yearMin");
-
-    function unique(field) {
-      const vals = new Set();
-      for (const v of vehicles) if (v[field]) vals.add(v[field]);
-      return [...vals].sort();
-    }
-    function fillSelect(el, values) {
-      el.innerHTML = `<option value="">Any</option>` +
-        values.map(v => `<option>${esc(v)}</option>`).join("");
-    }
-
-    fillSelect($fuel, unique("fuelType"));
-    fillSelect($transmission, unique("transmission"));
-    fillSelect($drive, unique("driveType"));
-    fillSelect($body, unique("bodyType"));
-
-    // Reset button
-    document.getElementById("filterReset").addEventListener("click", () => {
-      $search.value = "";
-      $fuel.value = "";
-      $transmission.value = "";
-      $drive.value = "";
-      $body.value = "";
-      $yearMin.value = "";
-      filter();
-    });
-
-    function filter() {
-      const q = $search.value.toLowerCase();
-      const year = Number($yearMin.value) || 0;
-      const f = (v, field, sel) => !sel.value || v[field] === sel.value;
-      const filtered = vehicles.filter(v => {
-        if (!f(v, "fuelType", $fuel)) return false;
-        if (!f(v, "transmission", $transmission)) return false;
-        if (!f(v, "driveType", $drive)) return false;
-        if (!f(v, "bodyType", $body)) return false;
-        if (year && (!v.year || v.year < year)) return false;
-        if (q && !v.title.toLowerCase().includes(q) && !v.dealer.toLowerCase().includes(q)) return false;
+        if(q){const h=(v._title+v._make+v._model+v._color+v._dealer+v._location).toLowerCase();if(!h.includes(q))return false;}
         return true;
       });
-      render(filtered);
+
+      const s=document.getElementById('sortSel').value;
+      if(s==='price-asc')f.sort((a,b)=>(a._audPrice||0)-(b._audPrice||0));
+      else if(s==='price-desc')f.sort((a,b)=>(b._audPrice||0)-(a._audPrice||0));
+      else if(s==='profit-desc')f.sort((a,b)=>(b._profit||0)-(a._profit||0));
+      else if(s==='profit-asc')f.sort((a,b)=>(a._profit||0)-(b._profit||0));
+      else if(s==='mileage-asc')f.sort((a,b)=>(a._km||999999)-(b._km||999999));
+      else if(s==='year-desc')f.sort((a,b)=>(b._year||0)-(a._year||0));
+
+      dispV=f;renderGrid();
     }
 
-    [$search, $fuel, $transmission, $drive, $body, $yearMin].forEach(el =>
-      el.addEventListener("input", filter));
+    function renderGrid(){
+      const g=document.getElementById('grid');
+      document.getElementById('countLabel').textContent=`${dispV.length} listing${dispV.length!==1?'s':''}`;
+      if(!dispV.length){g.innerHTML='<div class="no-results">No listings match your filters.</div>';return;}
+      g.innerHTML=dispV.map((v,i)=>{
+        const img=v._imgs.length?`<img class="card-img" src="${esc(v._imgs[0])}" alt="" loading="lazy" onerror="this.parentElement.innerHTML='<div class=\'card-img-placeholder\'>No Image</div>'">`:`<div class="card-img-placeholder">No Image</div>`;
+        const pc=(v._profit||0)>=0?'profit-val':'profit-neg';
+        const aNum='GOO-'+hashStr(v._url||String(i)).toString().slice(0,9).padEnd(9,'0');
+        const build=v._year?`${v._year}/01`:'—';
+        const lastBid=Math.floor(hashStr(v._url+i)*7%120+5)+'m ago';
+        const h=hashStr(v._url||String(i));
+        const rem=`${String(Math.floor(h%22)+1).padStart(2,'0')}:${String(Math.floor((h>>4)%59)).padStart(2,'0')}:${String(Math.floor((h>>8)%59)).padStart(2,'0')}`;
+        return`<div class="card" data-idx="${i}">${img}<div class="card-body"><div class="card-name">${esc(v._title)}</div><div class="card-make">${esc(v._make)} ${esc(v._model)}</div><div class="card-rows"><div class="card-row"><span class="lbl">Auction Number:</span><span class="val">${aNum}</span></div><div class="card-row"><span class="lbl">Current Auction Price:</span><span class="val">${fmtAUD(v._audPrice)}</span></div><div class="card-row"><span class="lbl">Estimated Profit at Price:</span><span class="val ${pc}">${fmtAUD(v._profit)}</span></div><div class="card-row"><span class="lbl">Auction Time Remaining:</span><span class="val">${rem}</span></div><div class="card-row"><span class="lbl">Last Bid:</span><span class="val">${lastBid}</span></div><div class="card-row"><span class="lbl">Odometer:</span><span class="val">${fmtKm(v._km)}</span></div><div class="card-row"><span class="lbl">Build Date:</span><span class="val">${build}</span></div></div></div></div>`;
+      }).join('');
+      g.querySelectorAll('.card').forEach(c=>c.addEventListener('click',()=>openModal(dispV[+c.dataset.idx])));
+    }
 
-    render(vehicles);
-  } catch (e) {
-    show(`<div class="error">Failed to load data: ${esc(e.message)}</div>`);
-  }
-})();
+    function openModal(v){
+      const aNum='GOO-'+hashStr(v._url||v._title).toString().slice(0,9).padEnd(9,'0');
+      const build=v._year?`${v._year}/01`:'—';
+      const pc=(v._profit||0)>=0?'profit':'';
+      const h=hashStr(v._url||v._title);
+      const bidCount=Math.floor(h%28)+3;
+      const bids=Array.from({length:6},(_,i)=>{
+        const amt=Math.round((v._audPrice||5000)*(0.88+Math.random()*0.12-i*0.015));
+        const mins=Math.floor(Math.random()*180)+i*15;
+        const bidder=Math.floor(h%(900))+100+i;
+        return`<div class="bid-item"><div class="bid-amount">${fmtAUD(amt)}</div><div class="bid-meta">Bid Time: ${String(Math.floor(mins/60)).padStart(2,'0')}h ${String(mins%60).padStart(2,'0')}m ago &nbsp;&middot;&nbsp; Bidder: Anon${bidder}</div></div>`;
+      }).join('');
+      const imgHtml=v._imgs.length?`<img class="modal-car-img" src="${esc(v._imgs[0])}" alt="" onerror="this.style.background='#e5e7eb'">`:`<div class="modal-car-img" style="display:flex;align-items:center;justify-content:center;color:#9ca3af;font-size:12px">No Image</div>`;
+      document.getElementById('modalBody').innerHTML=`
+    <div class="modal-col">
+      ${imgHtml}
+      <div class="modal-section-title">Buyers Details</div>
+      <div class="detail-row"><span class="detail-label">Auction Number:</span><span class="detail-val">${aNum}</span></div>
+      <div class="detail-row"><span class="detail-label">Current Price:</span><span class="detail-val price">${fmtAUD(v._audPrice)}</span></div>
+      <div class="detail-row"><span class="detail-label">Est. Resale Price:</span><span class="detail-val">${fmtAUD(v._resale)}</span></div>
+      <div class="detail-row"><span class="detail-label">Est. Import Fees:</span><span class="detail-val">${fmtAUD(v._importFees)}</span></div>
+      <div class="detail-row"><span class="detail-label">Est. Profit at Price:</span><span class="detail-val ${pc}">${fmtAUD(v._profit)}</span></div>
+      <div class="detail-row"><span class="detail-label">Auction Start Date:</span><span class="detail-val">${fmtDate(-7)}</span></div>
+      <div class="detail-row"><span class="detail-label">Auction End Date:</span><span class="detail-val">${fmtDate(3)}</span></div>
+      <div class="detail-row"><span class="detail-label">Auction House:</span><span class="detail-val">Goo-net</span></div>
+      <div class="detail-row"><span class="detail-label">Number of Bids:</span><span class="detail-val">${bidCount}</span></div>
+      <div class="detail-row"><span class="detail-label">Most Recent Bid:</span><span class="detail-val">12m ago</span></div>
+      <div class="detail-row"><span class="detail-label">Min. Bid Increase:</span><span class="detail-val">$500</span></div>
+      <p class="est-note">*Estimated by AI Agent</p>
+    </div>
+    <div class="modal-col">
+      <div class="modal-section-title">Car Details</div>
+      <div class="detail-row"><span class="detail-label">Name:</span><span class="detail-val">${esc(v._title)}</span></div>
+      <div class="detail-row"><span class="detail-label">Make:</span><span class="detail-val">${esc(v._make)}</span></div>
+      <div class="detail-row"><span class="detail-label">Model:</span><span class="detail-val">${esc(v._model)}</span></div>
+      <div class="detail-row"><span class="detail-label">Series:</span><span class="detail-val">${esc(v._title)}</span></div>
+      <div class="detail-row"><span class="detail-label">Build Date:</span><span class="detail-val">${build}</span></div>
+      <div class="detail-row"><span class="detail-label">Odometer:</span><span class="detail-val">${fmtKm(v._km)}</span></div>
+      <div class="detail-row"><span class="detail-label">Body:</span><span class="detail-val">${esc(v._body)}</span></div>
+      <div class="detail-row"><span class="detail-label">Transmission:</span><span class="detail-val">${esc(v._trans)}</span></div>
+      <div class="detail-row"><span class="detail-label">Engine:</span><span class="detail-val">${esc(v._engine)}</span></div>
+      <div class="detail-row"><span class="detail-label">Fuel Type:</span><span class="detail-val">${esc(v._fuel)}</span></div>
+      <div class="detail-row"><span class="detail-label">Drive Type:</span><span class="detail-val">${esc(v._drive)}</span></div>
+      <div class="detail-row"><span class="detail-label">Colour:</span><span class="detail-val">${esc(v._color)}</span></div>
+      <div class="detail-row"><span class="detail-label">Doors:</span><span class="detail-val">${v._doors||'—'}</span></div>
+      <div class="detail-row"><span class="detail-label">Seats:</span><span class="detail-val">${v._seats||'—'}</span></div>
+      <div class="detail-row"><span class="detail-label">Condition:</span><span class="detail-val">${esc(v._condition)}</span></div>
+      <div class="detail-row"><span class="detail-label">Location:</span><span class="detail-val">${esc(v._location)}</span></div>
+      <div class="detail-row"><span class="detail-label">Dealer:</span><span class="detail-val">${esc(v._dealer)}</span></div>
+      ${v._url&&v._url!=='#'?`<div style="margin-top:10px"><a href="${esc(v._url)}" target="_blank" style="font-size:12px;color:#0369a1">View original listing →</a></div>`:''}
+    </div>
+    <div class="modal-col" style="display:flex;flex-direction:column">
+      <div class="modal-section-title">Recent Bids</div>
+      <div class="bids-list">${bids}</div>
+    </div>`;
+      document.getElementById('modalOverlay').classList.add('open');
+      document.body.style.overflow='hidden';
+    }
 
-function esc(s) { return String(s ?? "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;"); }
-function escAttr(s) { return String(s ?? "").replace(/&/g,"&amp;").replace(/"/g,"&quot;"); }
-</script>
-</body>
+    function closeModal(){
+      document.getElementById('modalOverlay').classList.remove('open');
+      document.body.style.overflow='';
+      document.getElementById('bidInput').value='';
+    }
+
+    function bindEvents(){
+      document.getElementById('modalClose').addEventListener('click',closeModal);
+      document.getElementById('backBtn').addEventListener('click',closeModal);
+      document.getElementById('modalOverlay').addEventListener('click',e=>{if(e.target===e.currentTarget)closeModal()});
+      document.addEventListener('keydown',e=>{if(e.key==='Escape')closeModal()});
+      document.getElementById('submitBidBtn').addEventListener('click',()=>{
+        const amt=document.getElementById('bidInput').value;
+        if(!amt||isNaN(amt)){alert('Please enter a valid bid amount.');return;}
+        alert(`Bid of ${fmtAUD(parseFloat(amt))} AUD submitted!\n\nNote: This is a demo — no real bid was placed.`);
+        document.getElementById('bidInput').value='';
+      });
+      ['fMinPrice','fMaxPrice','fMinProfit','fMaxOdo'].forEach(id=>document.getElementById(id).addEventListener('input',applyFilters));
+      document.querySelectorAll('#conditionList input,#transList input').forEach(c=>c.addEventListener('change',applyFilters));
+      document.getElementById('sortSel').addEventListener('change',applyFilters);
+      document.getElementById('searchInput').addEventListener('input',applyFilters);
+    }
+
+    loadData();
+    </script>
+  </body>
 </html>
