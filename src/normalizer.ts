@@ -1,3 +1,5 @@
+import { normalizeMakeCase, normalizeVehicleTextCase } from "./casing.js";
+import { parseMileageToKm } from "./mileage.js";
 import type { VehicleRecord } from "./types.js";
 
 /**
@@ -25,29 +27,14 @@ export function parsePrice(raw: string): number | null {
   return null;
 }
 
-/**
- * Parse a Japanese mileage string into kilometres.
- *
- * Handles 万km notation (e.g. `"3.5万km"` → `35000`) and plain km.
- *
- * @param raw - Raw mileage string from the listing page
- * @returns Parsed mileage in km, or `null` if unparseable
- */
-export function parseMileage(raw: string): number | null {
-  if (!raw) return null;
-  const trimmed = raw.replace(/\s/g, "");
-  const match = trimmed.match(/([\d,]+(?:\.\d+)?)\s*万km/i);
-  if (match) {
-    const num = parseFloat(match[1].replace(/,/g, ""));
-    return Math.round(num * 10000);
-  }
-  const plain = trimmed.match(/([\d,]+)\s*km/i);
-  if (plain) {
-    return parseInt(plain[1].replace(/,/g, ""), 10);
-  }
-  return null;
-}
+export { parseMileageToKm };
 
+function splitMakeModel(title: string): { make?: string; model?: string } {
+  const parts = title.trim().split(/\s+/).filter(Boolean);
+  if (/^(19|20)\d{2}$/.test(parts[0] ?? "")) parts.shift();
+  if (parts.length === 0) return {};
+  return { make: parts[0], model: parts.slice(1, 3).join(" ") || undefined };
+}
 /**
  * Normalize a {@link VehicleRecord}: parse raw price/mileage, trim strings,
  * and fill missing optional fields with sensible defaults.
@@ -56,11 +43,20 @@ export function parseMileage(raw: string): number | null {
  * @returns Normalized record with parsed numeric fields
  */
 export function normalizeRecord(record: VehicleRecord): VehicleRecord {
+  const split = splitMakeModel(record.title ?? "");
   return {
     ...record,
+    market: record.market ?? "JP",
+    source: record.source ?? "goo-net",
+    sourceType: record.sourceType ?? "dealer",
+    currency: record.currency ?? "JPY",
+    make: normalizeMakeCase(record.make) || normalizeMakeCase(split.make),
+    model: normalizeVehicleTextCase(record.model) || normalizeVehicleTextCase(split.model),
     price: record.price ?? parsePrice(typeof record.priceRaw === "string" ? record.priceRaw : ""),
-    mileage: record.mileage ?? parseMileage(typeof record.mileageRaw === "string" ? record.mileageRaw : ""),
-    title: record.title?.trim() ?? "",
+    priceRaw: typeof record.priceRaw === "string" ? record.priceRaw.trim() : "",
+    mileage: record.mileage ?? parseMileageToKm(typeof record.mileageRaw === "string" ? record.mileageRaw : ""),
+    mileageRaw: typeof record.mileageRaw === "string" ? record.mileageRaw.trim() : "",
+    title: normalizeVehicleTextCase(record.title) ?? "",
     titleRaw: record.titleRaw?.trim() ?? "",
     color: record.color?.trim() ?? "",
     colorRaw: record.colorRaw?.trim() ?? "",
