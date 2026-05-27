@@ -1,12 +1,30 @@
-/** A single extracted and normalized vehicle listing from Goo-net. */
+export type VehicleMarket = "JP" | "AU";
+export type VehicleSourceType = "auction" | "dealer" | "classified";
+export type VehicleCurrency = "JPY" | "AUD";
+
+/** A single extracted and normalized vehicle listing. */
 export interface VehicleRecord {
+  /** Listing market/country. Optional during schema migration; writers should set it. */
+  market?: VehicleMarket;
+  /** Source site/system slug (e.g. "goo-net", "carsales"). */
+  source?: string;
+  /** Source listing type. */
+  sourceType?: VehicleSourceType;
+  /** Listing price currency. */
+  currency?: VehicleCurrency;
+  /** Source-native listing id if available. */
+  sourceId?: string;
+  /** Vehicle make/brand, normalized for filtering and matching. */
+  make?: string;
+  /** Vehicle model, normalized for filtering and matching. */
+  model?: string;
   /** Source listing URL. */
   url: string;
   /** Translated listing title in English. */
   title: string;
   /** Raw listing title in Japanese. */
   titleRaw: string;
-  /** Parsed price in JPY, or null if unavailable. */
+  /** Parsed price in listing currency, or null if unavailable. */
   price: number | null;
   /** Raw price string as shown on the listing page. */
   priceRaw: string;
@@ -58,18 +76,28 @@ export interface VehicleRecord {
   images: string[];
   /** ISO-8601 timestamp of when the record was extracted. */
   extractedAt: string;
+  /** Demo/auction metadata used by the arbitrage UI. */
+  auctionNumber?: string;
+  auctionEndTime?: string;
+  lastBidAt?: string;
+  buildDate?: string;
+  estimatedProfitAud?: number | null;
 }
 
 /** Configuration for a {@link crawl} run. */
 export interface CrawlConfig {
   /** Brand / model search term (e.g. "Toyota Alphard"). */
   brand?: string;
+  /** Optional model for crawlers that support brand/model URLs. */
+  model?: string;
+  /** Optional exact year target. */
+  year?: number;
   /** Direct brand page URL — overrides `brand` for discovery. */
   brandUrl?: string;
   /** Maximum number of listings to process (default: 10). */
   max: number;
-  /** Output directory for exported files (default: `"./data"`). */
-  outDir: string;
+  /** Upsert extracted records into Convex. Defaults to true for CLI usage. */
+  persist?: boolean;
 }
 
 /** Summary returned after a {@link crawl} run completes. */
@@ -82,6 +110,6 @@ export interface CrawlResult {
   totalFailed: number;
   /** Extracted vehicle records. */
   records: VehicleRecord[];
-  /** Directory where exported files were written. */
-  outputPath: string;
+  /** Export target where records were written. */
+  outputPath: "convex";
 }
