@@ -21,16 +21,33 @@
     "node": ">=18.0.0"
   },
   "scripts": {
-    "crawl": "tsx src/crawler-example.ts",
-    "test": "vitest run"
+    "crawl": "tsx src/goonet-crawler-example.ts",
+    "crawl:goonet": "tsx src/goonet-crawler-example.ts",
+    "crawl:autotrader": "tsx src/autotrader-crawler-example.ts",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
   },
   "dependencies": {
+    "@vitejs/plugin-react": "^6.0.2",
+    "cheerio": "^1.2.0",
+    "convex": "^1.39.1",
     "dotenv": "^16.4.7",
-    "openai": "^4.96.0"
+    "openai": "^4.96.0",
+    "react": "^19.2.6",
+    "react-dom": "^19.2.6",
+    "vite": "^8.0.14",
+    "zod": "^3.25.76"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
+    "@types/react": "^19.2.15",
+    "@types/react-dom": "^19.2.3",
+    "jsdom": "^29.1.1",
     "tsx": "^4.16.0",
+    "typescript": "^6.0.3",
     "vitest": "^2.0.0"
   },
   "packageManager": "pnpm@9.15.4+sha512.b2dc20e2fc72b3e18848459b37359a32064663e5627a51e4c74b2c29dd8e8e0491483c3abb40789cfd578bf362fb6ba8261b05f0387d76792ed6e23ea3b1b6a0"

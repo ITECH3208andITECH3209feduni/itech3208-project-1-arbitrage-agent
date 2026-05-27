@@ -5,3 +5,4 @@ data/
 *.db
 .agents/
 package-lock.json
+.env.local

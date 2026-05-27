@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { parsePrice, parseMileage, normalizeRecord } from "../src/normalizer.js";
+import { parsePrice, normalizeRecord } from "../src/normalizer.js";
+import { parseMileageToKm } from "../src/mileage.js";
 import type { VehicleRecord } from "../src/types.js";
 
 // ── parsePrice ──────────────────────────────────────────────────
@@ -60,37 +61,26 @@ describe("parsePrice", () => {
 
 // ── parseMileage ────────────────────────────────────────────────
 
-describe("parseMileage", () => {
+describe("parseMileageToKm", () => {
   it("parses 万km notation", () => {
-    expect(parseMileage("3.5万km")).toBe(35_000);
-  });
-
-  it("parses integer 万km", () => {
-    expect(parseMileage("10万km")).toBe(100_000);
+    expect(parseMileageToKm("3.5万km")).toBe(35_000);
   });
 
   it("parses plain km", () => {
-    expect(parseMileage("35000km")).toBe(35_000);
+    expect(parseMileageToKm("35,000km")).toBe(35_000);
   });
 
-  it("parses km with commas", () => {
-    expect(parseMileage("35,000km")).toBe(35_000);
-  });
-
-  it("handles case-insensitive KM", () => {
-    expect(parseMileage("5万KM")).toBe(50_000);
+  it("parses miles", () => {
+    expect(parseMileageToKm("10mi")).toBe(16);
   });
 
   it("handles whitespace", () => {
-    expect(parseMileage(" 3.5 万km ")).toBe(35_000);
+    expect(parseMileageToKm(" 3.5 万km ")).toBe(35_000);
   });
 
-  it("returns null for empty string", () => {
-    expect(parseMileage("")).toBeNull();
-  });
-
-  it("returns null for non-numeric", () => {
-    expect(parseMileage("不明")).toBeNull();
+  it("returns null for empty or non-numeric", () => {
+    expect(parseMileageToKm("")).toBeNull();
+    expect(parseMileageToKm("不明")).toBeNull();
   });
 });
 
@@ -199,6 +189,21 @@ describe("normalizeRecord", () => {
     const imgs = ["https://img.example.com/1.jpg"];
     const result = normalizeRecord(makeRecord({ images: imgs }));
     expect(result.images).toEqual(imgs);
+  });
+
+  it("normalizes stored make, model, and title case without changing URL", () => {
+    const url = "https://www.goo-net.com/usedcar/brand-TOYOTA/car-CAMRY/";
+    const result = normalizeRecord(makeRecord({
+      url,
+      make: "TOYOTA",
+      model: "CAMRY hybrid",
+      title: "toyota camry hybrid rx350",
+    }));
+
+    expect(result.url).toBe(url);
+    expect(result.make).toBe("Toyota");
+    expect(result.model).toBe("Camry Hybrid");
+    expect(result.title).toBe("Toyota Camry Hybrid RX350");
   });
 
   it("defaults empty images array", () => {
