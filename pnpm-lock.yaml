@@ -2752,6 +2752,9 @@ snapshots:
       get-tsconfig: 4.14.0
     optionalDependencies:
       fsevents: 2.3.3
+
+  typescript@6.0.3: {}
+
   undici-types@5.26.5: {}
 
   undici-types@6.21.0: {}
