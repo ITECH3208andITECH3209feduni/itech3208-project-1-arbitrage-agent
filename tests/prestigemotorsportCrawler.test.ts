@@ -24,131 +24,222 @@ afterEach(() => {
   delete process.env.OPENROUTER_API_KEY;
 });
 
-function auRecord(url: string, overrides: Partial<Record<string, unknown>> = {}): Record<string, unknown> {
+/** Text-response helper: resolveModelId / fetchSearchResultsPage both JSON.parse(await res.text()). */
+function jsonTextResponse(body: unknown) {
+  return { ok: true, text: async () => JSON.stringify(body) };
+}
+
+/** Plain-HTML response helper for the sold-status pre-check (fetchHtml). */
+function htmlResponse(html: string) {
+  return { ok: true, text: async () => html };
+}
+
+/** Search-results AJAX fragment containing one `.jas-car-item`, matching the real site's markup. */
+function carsHtmlFragment(entries: { url: string; priceText: string }[]): string {
+  return entries
+    .map(
+      (e) => `
+      <div class="jas-car-item">
+        <div class="jas-car-item-content"><h5><a href="${e.url}">Listing</a></h5></div>
+        <div class="jas-price"><h6>${e.priceText}</h6></div>
+      </div>`
+    )
+    .join("\n");
+}
+
+function auctionRecord(url: string, overrides: Partial<Record<string, unknown>> = {}): Record<string, unknown> {
   return {
     url,
     market: "AU",
-    source: "autotrader",
-    sourceType: "dealer",
+    source: "prestigemotorsport",
+    sourceType: "auction",
     currency: "AUD",
-    title: "2021 Lexus RX350 Luxury",
-    titleRaw: "2021 Lexus RX350 Luxury",
-    price: 54990,
-    priceRaw: "$54,990",
-    mileage: 41882,
-    mileageRaw: "41,882 km",
-    year: 2021,
+    title: "2020 Toyota Alphard SC",
+    titleRaw: "2020 Toyota Alphard SC",
+    price: null,
+    priceRaw: "",
+    hammerPriceRaw: "Sold for $34,500",
+    soldStatus: "sold",
+    mileage: 38210,
+    mileageRaw: "38,210 km",
+    year: 2020,
     color: "White",
     colorRaw: "White",
     transmission: "Automatic",
     transmissionRaw: "Automatic",
     driveType: "AWD",
     driveTypeRaw: "AWD",
-    engineSize: "3.5L",
+    engineSize: "2.5L",
     fuelType: "Petrol",
     fuelTypeRaw: "Petrol",
-    bodyType: "SUV",
-    bodyTypeRaw: "SUV",
-    doors: 4,
-    seats: 5,
-    dealerRaw: "Dealer",
-    dealer: "Dealer",
-    locationRaw: "Sydney, NSW",
-    location: "Sydney, NSW",
-    description: "Clean local car.",
-    descriptionRaw: "Clean local car.",
+    bodyType: "Van",
+    bodyTypeRaw: "Van",
+    doors: 5,
+    seats: 7,
+    dealerRaw: "",
+    dealer: "",
+    locationRaw: "Chiba, Japan",
+    location: "Chiba, Japan",
+    description: "One owner, full service history.",
+    descriptionRaw: "One owner, full service history.",
     images: [],
     ...overrides,
   };
 }
 
-describe("crawlAutotrader", () => {
-  it("expands Autotrader for-sale pages to current detail URLs and exports AU records", async () => {
-    const detailUrl = "https://www.autotrader.com.au/car/15010116/lexus/rx350/nsw/minchinbury/suv";
+describe("crawlPrestigeMotorsport", () => {
+  it("resolves make/model, runs the search AJAX flow, keeps sold listings, and exports AU auction records", async () => {
+    const detailUrl = "https://prestigemotorsport.com.au/vehicle/toyota-alphard-98765";
 
     mockFetch
-      .mockResolvedValueOnce({
-        ok: true,
-        text: async () => `<html><body><a href="/car/15010116/lexus/rx350/nsw/minchinbury/suv">Lexus RX</a></body></html>`,
-      })
+      // 1. search_model_car (resolve "Alphard" -> ext_id)
+      .mockResolvedValueOnce(jsonTextResponse({ models: [{ ext_id: "501", name: "Alphard" }] }))
+      // 2. search_results_car_dev (single page, total = 1)
+      .mockResolvedValueOnce(
+        jsonTextResponse({
+          cars_html: carsHtmlFragment([{ url: detailUrl, priceText: "Sold for $34,500" }]),
+          total: 1,
+        })
+      )
+      // 3. sold-status pre-check fetch on the detail page
+      .mockResolvedValueOnce(htmlResponse("<html><body>Result: SOLD for $34,500</body></html>"))
+      // 4. runCrawlPipeline's internal Exa fetchBatch call
       .mockResolvedValueOnce({
         ok: true,
         json: async () => ({
-          results: [{ url: detailUrl, text: "Details\n41,882 km\n$54,990", title: "Lexus RX" }],
+          results: [{ url: detailUrl, text: "Details\nSold for $34,500", title: "Alphard" }],
         }),
       });
 
-    mockPrompt.mockResolvedValueOnce(JSON.stringify([auRecord("https://wrong.example", { sourceType: "private" })]));
+    mockPrompt.mockResolvedValueOnce(JSON.stringify([auctionRecord("https://wrong.example", { sourceId: "" })]));
     mockExportToConvex.mockResolvedValueOnce({ upserted: 1 });
 
-    const { crawlAutotrader } = await import("../src/autotraderCrawler.js");
-    const result = await crawlAutotrader({ brand: "lexus", max: 1 });
+    const { crawlPrestigeMotorsport } = await import("../src/prestigemotorsportCrawler.js");
+    const result = await crawlPrestigeMotorsport({ make: "Toyota", model: "Alphard", max: 1 });
 
+    expect(mockFetch).toHaveBeenCalledTimes(4);
     expect(result.totalFound).toBe(1);
     expect(result.totalExtracted).toBe(1);
     expect(result.records[0].url).toBe(detailUrl);
     expect(result.records[0].market).toBe("AU");
     expect(result.records[0].currency).toBe("AUD");
-    expect(result.records[0].source).toBe("autotrader");
-    expect(result.records[0].sourceType).toBe("dealer");
-    expect(result.records[0].sourceId).toBe("15010116");
+    expect(result.records[0].source).toBe("prestigemotorsport");
+    expect(result.records[0].sourceType).toBe("auction");
+    expect(result.records[0].soldStatus).toBe("sold");
+    expect(result.records[0].sourceId).toBe("98765");
+    expect(result.records[0].price).toBe(34500);
     expect(mockExportToConvex).toHaveBeenCalledWith(result.records);
   });
 
-  it("expands exact grade and model-family Autotrader pages", async () => {
-    const exactUrl = "https://www.autotrader.com.au/car/14999586/lexus/ls500h/nsw/petersham/sedan";
-    const familyUrl = "https://www.autotrader.com.au/car/14993154/lexus/ls460/sa/edwardstown/sedan";
+  it("drops unsold/passed-in listings before they reach extraction", async () => {
+    const soldUrl = "https://prestigemotorsport.com.au/vehicle/toyota-alphard-98765";
+    const unsoldUrl = "https://prestigemotorsport.com.au/vehicle/toyota-alphard-98766";
 
     mockFetch
-      .mockResolvedValueOnce({
-        ok: true,
-        text: async () => `<a href="/car/14999586/lexus/ls500h/nsw/petersham/sedan">LS500h</a>`,
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        text: async () => `<a href="/car/14993154/lexus/ls460/sa/edwardstown/sedan">LS460</a>`,
-      })
+      // search_results_car_dev returns two candidates (no model resolution call, since model wasn't set)
+      .mockResolvedValueOnce(
+        jsonTextResponse({
+          cars_html: carsHtmlFragment([
+            { url: soldUrl, priceText: "Sold for $34,500" },
+            { url: unsoldUrl, priceText: "Reserve not met" },
+          ]),
+          total: 2,
+        })
+      )
+      // sold-status check: first candidate is sold
+      .mockResolvedValueOnce(htmlResponse("<html><body>Result: SOLD for $34,500</body></html>"))
+      // sold-status check: second candidate passed in
+      .mockResolvedValueOnce(htmlResponse("<html><body>Lot passed in, reserve not met</body></html>"))
+      // Exa fetchBatch call for the pipeline — only the sold URL should be requested
       .mockResolvedValueOnce({
         ok: true,
         json: async () => ({
-          results: [exactUrl, familyUrl].map((url) => ({ url, text: "Details\n$49,990", title: "Lexus LS" })),
+          results: [{ url: soldUrl, text: "Details\nSold for $34,500", title: "Alphard" }],
         }),
       });
 
-    mockPrompt.mockResolvedValueOnce(JSON.stringify([auRecord(exactUrl, { model: "LS500H", year: 2023 })]));
-    mockPrompt.mockResolvedValueOnce(JSON.stringify([auRecord(familyUrl, { model: "LS460", year: 2023 })]));
-    mockExportToConvex.mockResolvedValueOnce({ upserted: 2 });
-
-    const { crawlAutotrader } = await import("../src/autotraderCrawler.js");
-    const result = await crawlAutotrader({ brand: "lexus", model: "ls500h", year: 2023, max: 20 });
-
-    expect(mockFetch.mock.calls[0][0]).toBe("https://www.autotrader.com.au/for-sale/lexus/ls500h/year-2023");
-    expect(mockFetch.mock.calls[1][0]).toBe("https://www.autotrader.com.au/for-sale/lexus/ls/year-2023");
-    expect(result.totalFound).toBe(2);
-    expect(result.totalExtracted).toBe(2);
-  });
-
-  it("maps multi-word brand queries to Autotrader brand/model URLs", async () => {
-    const detailUrl = "https://www.autotrader.com.au/car/15011041/mercedes-benz/c200/nsw/petersham/sedan";
-
-    mockFetch
-      .mockResolvedValueOnce({
-        ok: true,
-        text: async () => `<a href="/car/15011041/mercedes-benz/c200/nsw/petersham/sedan">C200</a>`,
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          results: [{ url: detailUrl, text: "Details\n$49,990", title: "Mercedes C200" }],
-        }),
-      });
-
-    mockPrompt.mockResolvedValueOnce(JSON.stringify([auRecord(detailUrl, { title: "Mercedes-Benz C200", titleRaw: "Mercedes-Benz C200" })]));
+    mockPrompt.mockResolvedValueOnce(JSON.stringify([auctionRecord(soldUrl)]));
     mockExportToConvex.mockResolvedValueOnce({ upserted: 1 });
 
-    const { crawlAutotrader } = await import("../src/autotraderCrawler.js");
-    await crawlAutotrader({ query: "Mercedes Benz C Class", max: 1 });
+    const { crawlPrestigeMotorsport } = await import("../src/prestigemotorsportCrawler.js");
+    const result = await crawlPrestigeMotorsport({ make: "Toyota", max: 5 });
 
-    expect(mockFetch.mock.calls[0][0]).toBe("https://www.autotrader.com.au/for-sale/mercedes-benz/c-class");
+    expect(mockFetch).toHaveBeenCalledTimes(4);
+    expect(result.totalFound).toBe(1);
+    expect(result.records).toHaveLength(1);
+    expect(result.records[0].url).toBe(soldUrl);
+    expect(result.records.some((r) => r.url === unsoldUrl)).toBe(false);
+  });
+
+  it("skips the sold-status pre-check entirely when requireSold is false", async () => {
+    const urlA = "https://prestigemotorsport.com.au/vehicle/toyota-alphard-98765";
+    const urlB = "https://prestigemotorsport.com.au/vehicle/toyota-alphard-98766";
+
+    mockFetch
+      .mockResolvedValueOnce(
+        jsonTextResponse({
+          cars_html: carsHtmlFragment([
+            { url: urlA, priceText: "Sold for $34,500" },
+            { url: urlB, priceText: "Reserve not met" },
+          ]),
+          total: 2,
+        })
+      )
+      // Exa fetchBatch call for the pipeline — both URLs should go through untouched
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          results: [
+            { url: urlA, text: "Details\nSold for $34,500", title: "Alphard" },
+            { url: urlB, text: "Details\nReserve not met", title: "Alphard" },
+          ],
+        }),
+      });
+
+    mockPrompt.mockResolvedValueOnce(
+      JSON.stringify([auctionRecord(urlA), auctionRecord(urlB, { soldStatus: "unsold", hammerPriceRaw: "" })])
+    );
+    mockExportToConvex.mockResolvedValueOnce({ upserted: 2 });
+
+    const { crawlPrestigeMotorsport } = await import("../src/prestigemotorsportCrawler.js");
+    const result = await crawlPrestigeMotorsport({ make: "Toyota", max: 5, requireSold: false });
+
+    // Only the 2 discovery/pipeline fetches — no per-listing sold-status checks.
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+    expect(result.records).toHaveLength(2);
+    expect(result.records.map((r) => r.soldStatus).sort()).toEqual(["sold", "unsold"]);
+  });
+
+  it("rejects unknown makes before making any network calls", async () => {
+    const { crawlPrestigeMotorsport } = await import("../src/prestigemotorsportCrawler.js");
+
+    await expect(crawlPrestigeMotorsport({ make: "NotARealBrand", max: 1 })).rejects.toThrow(/Unknown make/i);
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it("in direct --url mode, only keeps prestigemotorsport.com.au URLs and skips search discovery", async () => {
+    const validUrl = "https://prestigemotorsport.com.au/vehicle/toyota-alphard-98765";
+    const foreignUrl = "https://example.com/not-prestige-motorsport/98765";
+
+    mockFetch
+      // sold-status pre-check on the one valid URL
+      .mockResolvedValueOnce(htmlResponse("<html><body>Result: SOLD for $34,500</body></html>"))
+      // Exa fetchBatch call for the pipeline
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          results: [{ url: validUrl, text: "Details\nSold for $34,500", title: "Alphard" }],
+        }),
+      });
+
+    mockPrompt.mockResolvedValueOnce(JSON.stringify([auctionRecord(validUrl)]));
+    mockExportToConvex.mockResolvedValueOnce({ upserted: 1 });
+
+    const { crawlPrestigeMotorsport } = await import("../src/prestigemotorsportCrawler.js");
+    const result = await crawlPrestigeMotorsport({ urls: [validUrl, foreignUrl], max: 5 });
+
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+    expect(result.records).toHaveLength(1);
+    expect(result.records[0].url).toBe(validUrl);
   });
 });

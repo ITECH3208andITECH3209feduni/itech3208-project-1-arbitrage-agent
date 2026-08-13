@@ -82,6 +82,12 @@ export interface VehicleRecord {
   lastBidAt?: string;
   buildDate?: string;
   estimatedProfitAud?: number | null;
+  /** Whether a past-auction listing sold, went unsold/passed-in, or is unknown. Auction sources only. */
+  soldStatus?: "sold" | "unsold" | "unknown";
+  /** Raw winning-bid / sold-price text as shown on the listing (e.g. "Sold for $34,500"). Auction sources only. */
+  hammerPriceRaw?: string;
+  /** Auction house name (e.g. "USS Tokyo", "TAA Kantou"). Auction sources only. */
+  auctionHouse?: string;
 }
 
 /** Configuration for a {@link crawl} run. */

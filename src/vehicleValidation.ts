@@ -11,6 +11,10 @@ const sourceType = z.preprocess(
   z.enum(["auction", "dealer", "classified"]).optional(),
 );
 const currency = z.preprocess((value) => value === "JPY" || value === "AUD" ? value : undefined, z.enum(["JPY", "AUD"]).optional());
+const soldStatus = z.preprocess(
+  (value) => value === "sold" || value === "unsold" || value === "unknown" ? value : undefined,
+  z.enum(["sold", "unsold", "unknown"]).optional(),
+);
 
 export const VehicleRecordSchema = z.object({
   market,
@@ -53,6 +57,9 @@ export const VehicleRecordSchema = z.object({
   auctionEndTime: optionalText,
   lastBidAt: optionalText,
   buildDate: optionalText,
+  soldStatus,
+  hammerPriceRaw: optionalText,
+  auctionHouse: optionalText,
 });
 
 export function validateVehicleRecord(record: unknown): VehicleRecord | null {

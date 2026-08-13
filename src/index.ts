@@ -10,6 +10,7 @@ import "dotenv/config";
 
 export { crawlGoonet, crawl } from "./goonetCrawler.js";
 export { crawlAutotrader } from "./autotraderCrawler.js";
+export { crawlPrestigeMotorsport } from "./prestigemotorsportCrawler.js";
 export { prompt, promptStreaming } from "./llm.js";
 export { discover, fetchBatch } from "./exa.js";
 export { exportToConvex } from "./convexExporter.js";
@@ -17,3 +18,4 @@ export { estimateProfitAud, applyEstimatedProfitAud } from "./profitEstimator.js
 export { BRAND_PAGES, GOO_NET_BRANDS, GOO_NET_BRAND_PAGES, AUTOTRADER_BRAND_SLUGS, getBrandPages, getGooNetBrandPage, getAutotraderBrandPage, getAutotraderPageFromQuery } from "./brands.js";
 export type { CrawlConfig, CrawlResult, VehicleRecord } from "./types.js";
 export type { AutotraderCrawlConfig } from "./autotraderCrawler.js";
+export type { PrestigeMotorsportCrawlConfig } from "./prestigemotorsportCrawler.js";
