@@ -11,6 +11,9 @@ const vehicleFields = {
   sourceId: v.optional(v.string()),
   make: v.optional(v.string()),
   model: v.optional(v.string()),
+  normalizedMake: v.optional(v.string()),
+  normalizedModel: v.optional(v.string()),
+  modelFamily: v.optional(v.string()),
   url: v.string(),
   title: v.string(),
   titleRaw: v.string(),
@@ -46,6 +49,19 @@ const vehicleFields = {
   lastBidAt: v.optional(v.string()),
   buildDate: v.optional(v.string()),
   estimatedProfitAud: v.optional(v.union(v.number(), v.null())),
+  purchaseAud: v.optional(v.union(v.number(), v.null())),
+  importCostAud: v.optional(v.union(v.number(), v.null())),
+  soldStatus: v.optional(v.union(v.literal("sold"), v.literal("unsold"), v.literal("unknown"))),
+  hammerPriceRaw: v.optional(v.string()),
+  auctionHouse: v.optional(v.string()),
+  estimatedResaleAud: v.optional(v.union(v.number(), v.null())),
+  estimatedResaleLowAud: v.optional(v.union(v.number(), v.null())),
+  estimatedResaleHighAud: v.optional(v.union(v.number(), v.null())),
+  resaleConfidence: v.optional(v.union(v.number(), v.null())),
+  resaleConfidenceLabel: v.optional(v.union(v.literal("low"), v.literal("medium"), v.literal("high"), v.null())),
+  resaleComparableCount: v.optional(v.number()),
+  resaleBasis: v.optional(v.union(v.literal("asking"), v.literal("sold"), v.literal("mixed"), v.null())),
+  resaleConfidenceReasons: v.optional(v.union(v.array(v.string()), v.null())),
 };
 
 export default defineSchema({
@@ -54,11 +70,15 @@ export default defineSchema({
     .index("by_price", ["price"])
     .index("by_year", ["year"])
     .index("by_extractedAt", ["extractedAt"])
+    .index("by_updatedAt", ["updatedAt"])
     .index("by_market", ["market"])
     .index("by_market_price", ["market", "price"])
     .index("by_market_year", ["market", "year"])
     .index("by_source_url", ["source", "url"])
     .index("by_make", ["make"])
     .index("by_model", ["model"])
-    .index("by_make_model", ["make", "model"]),
+    .index("by_make_model", ["make", "model"])
+    .index("by_normalized_make_market", ["normalizedMake", "market"])
+    .index("by_normalized_make_model_market", ["normalizedMake", "normalizedModel", "market"])
+    .index("by_normalized_make_family_market", ["normalizedMake", "modelFamily", "market"]),
 });

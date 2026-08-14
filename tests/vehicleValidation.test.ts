@@ -42,11 +42,11 @@ function rawRecord(overrides: Record<string, unknown> = {}): Record<string, unkn
 }
 
 describe("vehicleValidation", () => {
-  it("strips LLM-provided estimatedProfitAud before app recomputes it", () => {
+  it("strips LLM-provided estimatedProfitAud before comparable analysis", () => {
     const validated = validateVehicleRecord(rawRecord({ estimatedProfitAud: 999_999 }));
 
     expect(validated).not.toBeNull();
     expect(validated).not.toHaveProperty("estimatedProfitAud");
-    expect(applyEstimatedProfitAud(validated!).estimatedProfitAud).toBe(30_000);
+    expect(applyEstimatedProfitAud(validated!).estimatedProfitAud).toBeNull();
   });
 });

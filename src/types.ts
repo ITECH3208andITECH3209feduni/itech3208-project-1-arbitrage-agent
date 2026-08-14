@@ -82,6 +82,20 @@ export interface VehicleRecord {
   lastBidAt?: string;
   buildDate?: string;
   estimatedProfitAud?: number | null;
+  /** Estimated Australian resale price from comparable AU listings. */
+  estimatedResaleAud?: number | null;
+  /** P20/P80 range for estimated resale price. */
+  estimatedResaleLowAud?: number | null;
+  estimatedResaleHighAud?: number | null;
+  /** Comparable sample and price-basis metadata. */
+  resaleComparableCount?: number;
+  resaleBasis?: "asking" | "sold" | "mixed" | null;
+  resaleConfidence?: number | null;
+  resaleConfidenceLabel?: "low" | "medium" | "high" | null;
+  resaleConfidenceReasons?: string[] | null;
+  /** Purchase and import figures used by the estimator. */
+  purchaseAud?: number | null;
+  importCostAud?: number | null;
   /** Whether a past-auction listing sold, went unsold/passed-in, or is unknown. Auction sources only. */
   soldStatus?: "sold" | "unsold" | "unknown";
   /** Raw winning-bid / sold-price text as shown on the listing (e.g. "Sold for $34,500"). Auction sources only. */
