@@ -1,6 +1,7 @@
 import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
 import { canonicalizeUrl } from "../src/utils.js";
+import { modelFamilyKey, normalizeMake, normalizeModel } from "../src/modelFamily.js";
 
 const vehicleFields = {
   market: v.optional(v.union(v.literal("JP"), v.literal("AU"))),
@@ -10,6 +11,9 @@ const vehicleFields = {
   sourceId: v.optional(v.string()),
   make: v.optional(v.string()),
   model: v.optional(v.string()),
+  normalizedMake: v.optional(v.string()),
+  normalizedModel: v.optional(v.string()),
+  modelFamily: v.optional(v.string()),
   url: v.string(),
   title: v.string(),
   titleRaw: v.string(),
@@ -44,6 +48,19 @@ const vehicleFields = {
   lastBidAt: v.optional(v.string()),
   buildDate: v.optional(v.string()),
   estimatedProfitAud: v.optional(v.union(v.number(), v.null())),
+  purchaseAud: v.optional(v.union(v.number(), v.null())),
+  importCostAud: v.optional(v.union(v.number(), v.null())),
+  soldStatus: v.optional(v.union(v.literal("sold"), v.literal("unsold"), v.literal("unknown"))),
+  hammerPriceRaw: v.optional(v.string()),
+  auctionHouse: v.optional(v.string()),
+  estimatedResaleAud: v.optional(v.union(v.number(), v.null())),
+  estimatedResaleLowAud: v.optional(v.union(v.number(), v.null())),
+  estimatedResaleHighAud: v.optional(v.union(v.number(), v.null())),
+  resaleConfidence: v.optional(v.union(v.number(), v.null())),
+  resaleConfidenceLabel: v.optional(v.union(v.literal("low"), v.literal("medium"), v.literal("high"), v.null())),
+  resaleComparableCount: v.optional(v.number()),
+  resaleBasis: v.optional(v.union(v.literal("asking"), v.literal("sold"), v.literal("mixed"), v.null())),
+  resaleConfidenceReasons: v.optional(v.union(v.array(v.string()), v.null())),
 };
 
 const FACETS_PAGE_SIZE = 500;
@@ -107,6 +124,9 @@ export const upsertMany = mutation({
         sourceType: vehicle.sourceType ?? "dealer",
         currency: vehicle.currency ?? "JPY",
         ...vehicle,
+        normalizedMake: normalizeMake(vehicle.make),
+        normalizedModel: normalizeModel(vehicle.model),
+        modelFamily: modelFamilyKey(vehicle.model),
         url: canonicalUrl,
         updatedAt,
       } as const;
@@ -123,7 +143,7 @@ export const upsertMany = mutation({
       }
     }
 
-    return { upserted: args.vehicles.length };
+    return { upserted: args.vehicles.length, updatedAt };
   },
 });
 
@@ -246,5 +266,58 @@ export const getByUrl = query({
       .query("vehicles")
       .withIndex("by_url", (q) => q.eq("url", canonicalUrl))
       .unique();
+  },
+});
+
+/** Current Australian asking/sold records used as resale comparables. */
+export const getComparables = query({
+  args: { make: v.string(), model: v.string(), limit: v.optional(v.number()) },
+  handler: async (ctx, args) => {
+    const limit = Math.max(2, Math.min(100, Math.floor(args.limit ?? 50)));
+    const make = args.make.trim();
+    const model = args.model.trim();
+    const normalizedMake = normalizeMake(make);
+    const normalizedModel = normalizeModel(model);
+    const family = modelFamilyKey(model);
+    const familyRows = await ctx.db
+      .query("vehicles")
+      .withIndex("by_normalized_make_family_market", (q) =>
+        q.eq("normalizedMake", normalizedMake).eq("modelFamily", family).eq("market", "AU"),
+      )
+      .take(limit);
+    const makeRows = await ctx.db
+      .query("vehicles")
+      .withIndex("by_normalized_make_market", (q) =>
+        q.eq("normalizedMake", normalizedMake).eq("market", "AU"),
+      )
+      .take(500);
+    const normalizedRows = await ctx.db
+      .query("vehicles")
+      .withIndex("by_normalized_make_model_market", (q) =>
+        q.eq("normalizedMake", normalizedMake).eq("normalizedModel", normalizedModel).eq("market", "AU"),
+      )
+      .take(limit);
+    const legacyVariants = [
+      [make, model],
+      [make.toLocaleUpperCase(), model.toLocaleUpperCase()],
+      [make[0]?.toLocaleUpperCase() + make.slice(1).toLocaleLowerCase(), model[0]?.toLocaleUpperCase() + model.slice(1).toLocaleLowerCase()],
+    ];
+    const legacyRows = (await Promise.all(legacyVariants.map(([legacyMake, legacyModel]) =>
+      ctx.db
+        .query("vehicles")
+        .withIndex("by_make_model", (q) => q.eq("make", legacyMake).eq("model", legacyModel))
+        .take(limit),
+    ))).flat();
+    const rows = [...new Map([...familyRows, ...normalizedRows, ...makeRows, ...legacyRows].map((row) => [row._id, row])).values()];
+    return rows
+      .filter((row) =>
+        row.model && modelFamilyKey(row.model) === family &&
+        row.market === "AU" &&
+        row.currency === "AUD" &&
+        row.price != null &&
+        row.price > 0 &&
+        row.soldStatus !== "unsold"
+      )
+      .slice(0, limit);
   },
 });

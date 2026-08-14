@@ -2,7 +2,18 @@ import { fetchBatch } from "./exa.js";
 import { prompt } from "./llm.js";
 import { normalizeRecord } from "./normalizer.js";
 import { EXTRACT_PROMPT, TRANSLATE_PROMPT } from "./prompts.js";
-import { isGooNetListingUrl, canonicalizeUrl } from "./utils.js";import type { VehicleRecord } from "./types.js";
+import { isGooNetListingUrl, canonicalizeUrl } from "./utils.js";
+import type { VehicleRecord } from "./types.js";
+
+function isStrictGooNetListingUrl(url: string): boolean {
+  if (!isGooNetListingUrl(url)) return false;
+  try {
+    const pathname = new URL(url).pathname;
+    return /^\/usedcar\/spread\/goo(?:_sort)?\/\d+\/\d+\.html$/.test(pathname);
+  } catch {
+    return false;
+  }
+}
 
 // ── Extraction ───────────────────────────────────────────────────────────────
 
@@ -78,7 +89,10 @@ export interface RefreshResult {
 export async function refreshListing(url: string): Promise<RefreshResult> {
   // 1. Validate the URL
   url = canonicalizeUrl(url.trim());
-  
+  if (!isStrictGooNetListingUrl(url)) {
+    return { url, record: null, error: "Not a valid Goo-net listing URL" };
+  }
+
   const exaKey = process.env.EXA_API_KEY;
   if (!exaKey) {
     return { url, record: null, error: "EXA_API_KEY is not set" };
@@ -98,7 +112,7 @@ export async function refreshListing(url: string): Promise<RefreshResult> {
     return { url, record: null, error: "Exa returned no content for this URL" };
   }
 
-  // 3. LLM extraction + translation
+  // 3. Structured extraction + translation
   let raw: string;
   try {
     raw = await prompt(model, SYSTEM_PREFIX, buildExtractionUser(url, markdown));

@@ -7,7 +7,7 @@ import { refreshListing } from "../src/refreshListing.js";
 const mockFetch = vi.fn();
 vi.stubGlobal("fetch", mockFetch);
 
-const mockPrompt = vi.fn();
+const mockPrompt = vi.hoisted(() => vi.fn());
 vi.mock("../src/llm.js", () => ({ prompt: mockPrompt }));
 
 const VALID_URL =
@@ -84,6 +84,16 @@ describe("refreshListing", () => {
   it("rejects a non-listing Goo-net URL", async () => {
     const result = await refreshListing(
       "https://www.goo-net.com/usedcar/brand-TOYOTA/",
+    );
+
+    expect(result.record).toBeNull();
+    expect(result.error).toMatch(/not a valid goo-net listing url/i);
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it("rejects a Goo-net listing-shaped URL without a numeric listing id", async () => {
+    const result = await refreshListing(
+      "https://www.goo-net.com/usedcar/spread/goo/10/not-a-listing.html",
     );
 
     expect(result.record).toBeNull();

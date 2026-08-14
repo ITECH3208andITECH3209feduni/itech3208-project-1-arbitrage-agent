@@ -5,11 +5,10 @@ import { api } from "../../convex/_generated/api";
 import { convertJpyToAud, getJpyAudRate } from "../exchangeRate";
 import { normalizeYear } from "../year";
 import { ArchitectureFlowchart } from "./ArchitectureFlowchart";
+import { estimateFreshness, presentAuthoritativeEstimate } from "./vehiclePresentation";
 import "./styles.css";
 
 const convexUrl = import.meta.env.VITE_CONVEX_URL as string | undefined;
-const IMPORT_RATE = 0.32;
-const RESALE_MULT = 1.55;
 
 type Vehicle = {
   _id: string;
@@ -31,10 +30,24 @@ type Vehicle = {
   description: string;
   images: string[];
   auctionNumber?: string;
+  auctionHouse?: string;
+  soldStatus?: "sold" | "unsold" | "unknown";
   auctionEndTime?: string;
   lastBidAt?: string;
   buildDate?: string;
   estimatedProfitAud?: number | null;
+  estimatedResaleAud?: number | null;
+  estimatedResaleLowAud?: number | null;
+  estimatedResaleHighAud?: number | null;
+  resaleComparableCount?: number;
+  resaleBasis?: "asking" | "sold" | "mixed" | null;
+  resaleConfidence?: number | null;
+  resaleConfidenceLabel?: "low" | "medium" | "high";
+  resaleConfidenceReasons?: string[] | null;
+  purchaseAud?: number | null;
+  importCostAud?: number | null;
+  extractedAt?: string;
+  updatedAt?: string;
   market?: "JP" | "AU";
   source?: string;
   sourceType?: "auction" | "dealer" | "classified";
@@ -51,6 +64,15 @@ type ViewVehicle = Vehicle & {
   resale: number | null;
   profit: number | null;
   auctionNo: string;
+  resaleLow: number | null;
+  resaleHigh: number | null;
+  confidence: number | null;
+  confidenceLabel: "low" | "medium" | "high" | null;
+  comparableCount: number | null;
+  basis: "asking" | "sold" | "mixed" | null;
+  confidenceReasons: string[];
+  lastChecked?: string;
+  stale: boolean;
 };
 
 function hashStr(s: string) {
@@ -120,26 +142,26 @@ function countdown(iso?: string) {
 }
 
 function toView(v: Vehicle, rate: number): ViewVehicle {
-  const audPrice = v.currency === "AUD" ? v.price : convertJpyToAud(v.price, rate);
-  const importFees =
-    audPrice == null ? null : Math.round(audPrice * IMPORT_RATE);
-  const resale =
-    audPrice == null
-      ? null
-      : Math.round(audPrice * (1 + IMPORT_RATE) * RESALE_MULT);
-  const profit =
-    v.estimatedProfitAud ??
-    (audPrice == null || resale == null
-      ? null
-      : Math.round(resale - audPrice * (1 + IMPORT_RATE)));
+  const estimate = presentAuthoritativeEstimate(v);
+  const audPrice = v.purchaseAud ?? (v.currency === "AUD" ? v.price : convertJpyToAud(v.price, rate));
+  const lastChecked = v.updatedAt ?? v.extractedAt;
   return {
     ...v,
     make: v.make || "-",
     model: v.model || "-",
     audPrice,
-    importFees,
-    resale,
-    profit,
+    importFees: v.importCostAud ?? null,
+    resale: estimate.resale,
+    profit: estimate.profit,
+    resaleLow: estimate.low,
+    resaleHigh: estimate.high,
+    confidence: estimate.confidence,
+    confidenceLabel: estimate.confidenceLabel,
+    comparableCount: estimate.comparableCount,
+    basis: estimate.basis,
+    confidenceReasons: estimate.reasons,
+    lastChecked,
+    stale: estimateFreshness(lastChecked).stale,
     auctionNo:
       v.auctionNumber ??
       `${sourcePrefix(v.source)}-${String(hashStr(v.url)).slice(0, 9).padEnd(9, "0")}`,
@@ -168,6 +190,8 @@ function App() {
   const [scrapeUrl, setScrapeUrl] = useState("");
   const [scrapeMax, setScrapeMax] = useState("5");
   const [scrapeStatus, setScrapeStatus] = useState("");
+  const [refreshingUrl, setRefreshingUrl] = useState<string | null>(null);
+  const [refreshStatus, setRefreshStatus] = useState<{ url: string; message: string; error: boolean } | null>(null);
   const [scraping, setScraping] = useState(false);
   const [scrapeSeconds, setScrapeSeconds] = useState(0);
   type FacetPage = {
@@ -179,6 +203,7 @@ function App() {
 
   const FACETS_PAGE_SIZE = 500;
   const scrapeVehicles = useAction(api.scrape.vehicles);
+  const refreshVehicle = useAction(api.scrape.refreshVehicle);
   const [facetCursor, setFacetCursor] = useState<string | undefined>(undefined);
   const [loadedFacetCursor, setLoadedFacetCursor] = useState<string | null>(null);
   const [facetsDone, setFacetsDone] = useState(false);
@@ -227,6 +252,11 @@ function App() {
   }, [scraping]);
 
   const all = useMemo(() => raw.map((v) => toView(v, rate)), [raw, rate, tick]);
+  useEffect(() => {
+    if (!selected) return;
+    const current = all.find((vehicle) => vehicle._id === selected._id);
+    if (current) setSelected(current);
+  }, [all, selected?._id]);
   const loadedModelsByMake = useMemo(() => {
     const next: Record<string, string[]> = {};
     for (const vehicle of raw) {
@@ -414,6 +444,21 @@ function App() {
     setBid("");
   };
 
+  const refreshListing = async (url: string) => {
+    if (refreshingUrl) return;
+    setRefreshingUrl(url);
+    setRefreshStatus(null);
+    try {
+      const result = await refreshVehicle({ url });
+      const checked = result.updatedAt ? new Date(result.updatedAt).toLocaleString("en-AU") : "now";
+      setRefreshStatus({ url, error: false, message: `Refresh successful. Updated ${checked}. Status: ${result.changed ? "changed" : "unchanged"}. Confidence: ${result.resaleConfidenceLabel ?? "not available"}. Comparables: ${result.resaleComparableCount}.` });
+    } catch (err) {
+      setRefreshStatus({ url, error: true, message: `Refresh failed: ${userError(err)}` });
+    } finally {
+      setRefreshingUrl(null);
+    }
+  };
+
   const renderVehicleCards = (items: ViewVehicle[], emptyText: string) => {
     if (loading) return <div className="loading">Loading vehicle listings...</div>;
     if (!items.length) return <div className="no-results">{emptyText}</div>;
@@ -454,7 +499,17 @@ function App() {
             <Row l="Last Bid:" v={timeAgo(v.lastBidAt)} />
             <Row l="Odometer:" v={fmtKm(v.mileage)} />
             <Row l="Build Date:" v={v.buildDate ?? (v.year ? `${v.year}/01` : "-")} />
+            <Row l="Last checked:" v={v.lastChecked ? fmtDate(v.lastChecked) : "-"} />
+            <Row l="Confidence:" v={v.confidenceLabel ? `${v.confidenceLabel}${v.confidence == null ? "" : ` ${v.confidence}%`}` : "-"} />
           </div>
+          {v.stale && <span className="stale-badge">Stale</span>}
+          {isSource(v, "goonet") && <button
+            type="button"
+            className="refresh-button"
+            disabled={refreshingUrl === v.url}
+            aria-busy={refreshingUrl === v.url}
+            onClick={(event) => { event.stopPropagation(); void refreshListing(v.url); }}
+          >{refreshingUrl === v.url ? "Refreshing" : "Refresh"}</button>}
         </div>
       </div>
     ));
@@ -542,6 +597,9 @@ function App() {
           />
         </div>
       </header>
+      <div className={`refresh-announcement ${refreshStatus?.error ? "error" : ""}`} role="status" aria-live="polite">
+        {refreshStatus?.message}
+      </div>
       <div className="layout">
         <aside className="sidebar">
           <h2>Filters</h2>
@@ -769,12 +827,19 @@ function App() {
                   cls="price"
                 />
                 <Detail l="Est. Resale Price:" v={fmtAUD(selected.resale)} />
+                <Detail l="Resale Range:" v={selected.resaleLow == null || selected.resaleHigh == null ? "-" : `${fmtAUD(selected.resaleLow)} - ${fmtAUD(selected.resaleHigh)}`} />
                 <Detail l="Est. Import Fees:" v={fmtAUD(selected.importFees)} />
                 <Detail
                   l="Est. Profit at Price:"
                   v={fmtAUD(selected.profit)}
                   cls={(selected.profit ?? 0) >= 0 ? "profit" : ""}
                 />
+                <Detail l="Confidence:" v={selected.confidenceLabel ? `${selected.confidenceLabel}${selected.confidence == null ? "" : ` (${selected.confidence}%)`}` : "-"} />
+                <Detail l="Comparables:" v={selected.comparableCount == null ? "-" : String(selected.comparableCount)} />
+                <Detail l="Basis:" v={selected.basis ?? "-"} />
+                <Detail l="Last checked:" v={selected.lastChecked ? fmtDate(selected.lastChecked) : "-"} />
+                {selected.stale && <span className="stale-badge">Stale</span>}
+                {selected.confidenceReasons.length > 0 && <div className="estimate-reasons"><strong>Confidence reasons</strong><ul>{selected.confidenceReasons.map((reason) => <li key={reason}>{reason}</li>)}</ul></div>}
                 <Detail
                   l="Auction Start Date:"
                   v={fmtDate(selected.lastBidAt)}
@@ -783,10 +848,11 @@ function App() {
                   l="Auction End Date:"
                   v={fmtDate(selected.auctionEndTime)}
                 />
-                <Detail l="Auction House:" v="Goo-net" />
+                <Detail l="Auction House:" v={selected.auctionHouse ?? selected.source ?? "-"} />
+                <Detail l="Sale Status:" v={selected.soldStatus ?? "-"} />
                 <Detail l="Most Recent Bid:" v={timeAgo(selected.lastBidAt)} />
                 <Detail l="Min. Bid Increase:" v="$500" />
-                <p className="est-note">*Estimated by AI Agent</p>
+                <p className="est-note">*Estimated from Australian market comparables</p>
               </div>
               <div className="modal-col">
                 <div className="modal-section-title">Car Details</div>
