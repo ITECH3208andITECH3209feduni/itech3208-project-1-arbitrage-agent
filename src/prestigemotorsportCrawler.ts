@@ -5,6 +5,7 @@
 */
 import * as cheerio from "cheerio";
 import { buildTargetInstruction, logUrls, runCrawlPipeline } from "./crawlPipeline.js";
+import { translateAuctionSheet } from "./auctionSheet.js";
 import type { CrawlResult, VehicleRecord } from "./types.js";
 
 const AJAX_URL = "https://prestigemotorsport.com.au/wp-admin/admin-ajax.php";
@@ -66,6 +67,7 @@ Each record must have these fields:
 - Text fields: title, titleRaw, make, model, color, colorRaw, transmission, transmissionRaw, driveType, driveTypeRaw, fuelType, fuelTypeRaw, bodyType, bodyTypeRaw, description, descriptionRaw, dealer, dealerRaw, location, locationRaw, engineSize, priceRaw, mileageRaw
 - Numeric fields: price, mileage, year, doors, seats
 - Auction-specific: soldStatus ("sold", "unsold", or "unknown"), hammerPriceRaw (the winning bid / sold price text as shown, e.g. "Sold for $34,500"), auctionHouse (e.g. "USS Tokyo", "TAA Kantou")
+- Japanese auction-sheet fields, if a sheet is shown or referenced (leave "" if absent): exteriorGradeRaw (評価点 exterior grade, e.g. "4.5", "S", "R", "RA"), interiorGradeRaw (A–D interior grade), ownershipHistoryRaw (raw 車歴 term, e.g. "自家用", "ワンオーナー", "リース", "社用", "レンタ", "教習車"), registrationRaw (raw Japanese-era code, e.g. "R5", "H30"), salesPointsRaw (any raw セールスポイント/equipment terms found on the sheet, e.g. "禁煙車", "本革", "サンルーフ"), inspectorNotesRaw (raw inspector remarks)
 
 Set url to the exact <!-- PAGE: ... --> URL for each page. Prefer car-specific detail page fields from the Details / Features / Specs sections over result-card text.
 - Other: url, images, extractedAt
@@ -213,7 +215,24 @@ function sanitizeSourceType(value: unknown): "dealer" | "classified" | "auction"
   return value === "dealer" || value === "classified" ? value : "auction";
 }
 
+function asOptionalString(value: unknown): string | undefined {
+  return typeof value === "string" ? value : undefined;
+}
+
 function prepareAuctionRecord(record: VehicleRecord, pageUrl: string): VehicleRecord {
+  // Auction-sheet fields aren't part of the base VehicleRecord type on the LLM's raw output shape,
+  // so read them off the record defensively before it's normalized/typed below.
+  const scratch = record as unknown as Record<string, unknown>;
+  const sheet = translateAuctionSheet({
+    exteriorGradeRaw: asOptionalString(scratch.exteriorGradeRaw),
+    interiorGradeRaw: asOptionalString(scratch.interiorGradeRaw),
+    mileageRaw: record.mileageRaw,
+    ownershipHistoryRaw: asOptionalString(scratch.ownershipHistoryRaw),
+    registrationRaw: asOptionalString(scratch.registrationRaw),
+    salesPointsRaw: [asOptionalString(scratch.salesPointsRaw), record.descriptionRaw].filter(Boolean).join(" "),
+    inspectorNotesRaw: asOptionalString(scratch.inspectorNotesRaw),
+  });
+
   return {
     ...record,
     url: pageUrl,
@@ -224,6 +243,13 @@ function prepareAuctionRecord(record: VehicleRecord, pageUrl: string): VehicleRe
     sourceId: record.sourceId || extractPrestigeMotorsportSourceId(pageUrl),
     price: record.price ?? parseAudPrice(record.hammerPriceRaw || record.priceRaw),
     soldStatus: sanitizeSoldStatus(record.soldStatus),
+    exteriorGrade: sheet.exteriorGrade,
+    exteriorGradeDescription: sheet.exteriorGradeDescription,
+    interiorGrade: sheet.interiorGrade,
+    interiorGradeDescription: sheet.interiorGradeDescription,
+    mileageWarning: sheet.mileageWarning,
+    ownershipHistory: sheet.ownershipHistory,
+    auctionSalesPoints: sheet.salesPoints.map((p) => p.en),
   };
 }
 
