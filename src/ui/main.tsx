@@ -573,6 +573,10 @@ function App() {
       setScrapeStatus("Enter Prestige Motorsport make or URL.");
       return;
     }
+    if (scrapeSource === "prestigemotorsport" && !model) {
+      setScrapeStatus("Enter a Prestige Motorsport model.");
+      return;
+    }
 
     setScraping(true);
     setScrapeStatus("Scraping… this can take a minute.");
@@ -649,7 +653,8 @@ function App() {
             <input
               value={scrapeModel}
               onChange={(e) => setScrapeModel(e.target.value)}
-              placeholder="Model optional"
+              placeholder={scrapeSource === "prestigemotorsport" ? "Model required" : "Model optional"}
+              required={scrapeSource === "prestigemotorsport"}
             />
             <input
               type="number"
