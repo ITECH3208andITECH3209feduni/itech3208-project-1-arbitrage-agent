@@ -171,7 +171,7 @@ function detectMileageFlag(raw: string): MileageFlag {
   if (raw.includes("★★")) return "★★";
   if (raw.includes("★")) return "★";
   const trimmed = raw.trim();
-  if (trimmed && /^[-−–—]+$/.test(trimmed)) return "-";
+  if (trimmed && /^[-－−–—]+$/.test(trimmed)) return "-";
   return "";
 }
 
@@ -198,8 +198,12 @@ export function extractSalesPoints(raw?: string): { jp: string; en: string }[] {
   if (!text) return [];
   const keys = Object.keys(SALES_POINTS).sort((a, b) => b.length - a.length);
   const found: { jp: string; en: string }[] = [];
+  let working = text;
   for (const key of keys) {
-    if (text.includes(key)) found.push({ jp: key, en: SALES_POINTS[key] });
+    if (working.includes(key)) {
+      found.push({ jp: key, en: SALES_POINTS[key] });
+      working = working.split(key).join(""); // remove matched text so contained substrings can't re-match
+    }
   }
   return found;
 }
