@@ -31,6 +31,13 @@ type Vehicle = {
   images: string[];
   auctionNumber?: string;
   auctionHouse?: string;
+  exteriorGrade?: string;
+  exteriorGradeDescription?: string;
+  interiorGrade?: string;
+  interiorGradeDescription?: string;
+  mileageWarning?: string;
+  ownershipHistory?: string;
+  auctionSalesPoints?: string[];
   soldStatus?: "sold" | "unsold" | "unknown";
   auctionEndTime?: string;
   lastBidAt?: string;
@@ -106,9 +113,12 @@ function sourcePrefix(source?: string) {
   const normalized = normalizedSource(source);
   if (normalized.includes("autotrader")) return "AUTOTRADER";
   if (normalized.includes("goo")) return "GOONET";
+  if (normalized.includes("prestige")) return "PRESTIGE";
   return normalized.toUpperCase() || "SOURCE";
 }
-function isSource(v: Vehicle, source: "goonet" | "autotrader") {
+type ListingSource = "goonet" | "autotrader" | "prestigemotorsport";
+
+function isSource(v: Vehicle, source: ListingSource) {
   const normalized = normalizedSource(v.source);
   return source === "autotrader"
     ? normalized.includes("autotrader")
@@ -183,7 +193,7 @@ function App() {
   const [models, setModels] = useState<string[]>([]);
   const [selected, setSelected] = useState<ViewVehicle | null>(null);
   const [bid, setBid] = useState("");
-  const [scrapeSource, setScrapeSource] = useState<"goonet" | "autotrader">("goonet");
+  const [scrapeSource, setScrapeSource] = useState<ListingSource>("goonet");
   const [scrapeBrand, setScrapeBrand] = useState("TOYOTA");
   const [scrapeModel, setScrapeModel] = useState("");
   const [scrapeYear, setScrapeYear] = useState("");
@@ -225,8 +235,15 @@ function App() {
     limit: 250,
     source: "autotrader",
   }) as Vehicle[] | undefined;
-  const loading = goonetVehicles === undefined || autotraderVehicles === undefined;
-  const raw = [...(goonetVehicles ?? []), ...(autotraderVehicles ?? [])];
+  const prestigeVehicles = useQuery(api.vehicles.list, {
+    limit: 250,
+    source: "prestigemotorsport",
+  }) as Vehicle[] | undefined;
+  const loading = goonetVehicles === undefined || autotraderVehicles === undefined || prestigeVehicles === undefined;
+  const raw = useMemo(
+    () => [...(goonetVehicles ?? []), ...(autotraderVehicles ?? []), ...(prestigeVehicles ?? [])],
+    [goonetVehicles, autotraderVehicles, prestigeVehicles],
+  );
 
   useEffect(() => {
     getJpyAudRate().then((c) => {
@@ -251,7 +268,7 @@ function App() {
     return () => window.clearInterval(id);
   }, [scraping]);
 
-  const all = useMemo(() => raw.map((v) => toView(v, rate)), [raw, rate, tick]);
+  const all = useMemo(() => raw.map((v) => toView(v, rate)), [raw, rate]);
   useEffect(() => {
     if (!selected) return;
     const current = all.find((vehicle) => vehicle._id === selected._id);
@@ -425,6 +442,10 @@ function App() {
     () => filtered.filter((vehicle) => isSource(vehicle, "autotrader")),
     [filtered],
   );
+  const prestigeFiltered = useMemo(
+    () => filtered.filter((vehicle) => isSource(vehicle, "prestigemotorsport")),
+    [filtered],
+  );
 
   const toggle = (
     arr: string[],
@@ -548,6 +569,10 @@ function App() {
       setScrapeStatus("Enter Autotrader brand/model or URL.");
       return;
     }
+    if (scrapeSource === "prestigemotorsport" && !brand && urls.length === 0) {
+      setScrapeStatus("Enter Prestige Motorsport make or URL.");
+      return;
+    }
 
     setScraping(true);
     setScrapeStatus("Scraping… this can take a minute.");
@@ -558,7 +583,7 @@ function App() {
         model,
         brandUrl: scrapeSource === "goonet" ? urls[0] : undefined,
         query: scrapeSource === "autotrader" && urls.length === 0 ? query : undefined,
-        urls: scrapeSource === "autotrader" && urls.length ? urls : undefined,
+        urls: scrapeSource !== "goonet" && urls.length ? urls : undefined,
         year,
         max,
       });
@@ -610,10 +635,11 @@ function App() {
             <h3>Scrape New Vehicles</h3>
             <select
               value={scrapeSource}
-              onChange={(e) => setScrapeSource(e.target.value as "goonet" | "autotrader")}
+              onChange={(e) => setScrapeSource(e.target.value as ListingSource)}
             >
               <option value="goonet">Goo-net</option>
               <option value="autotrader">Autotrader</option>
+              <option value="prestigemotorsport">Prestige Motorsport</option>
             </select>
             <input
               value={scrapeBrand}
@@ -637,7 +663,9 @@ function App() {
               placeholder={
                 scrapeSource === "goonet"
                   ? "Optional Goo-net URL"
-                  : "Optional Autotrader URL(s)"
+                  : scrapeSource === "autotrader"
+                    ? "Optional Autotrader URL(s)"
+                    : "Optional Prestige URL(s)"
               }
             />
             <div className="scrape-row">
@@ -776,6 +804,19 @@ function App() {
             </section>
             <section className="source-panel">
               <div className="grid-header">
+                <h2>Prestige Motorsport</h2>
+                <span className="count">
+                  {loading
+                    ? "Loading..."
+                    : `${prestigeFiltered.length} listing${prestigeFiltered.length !== 1 ? "s" : ""}`}
+                </span>
+              </div>
+              <div className="grid source-grid">
+                {renderVehicleCards(prestigeFiltered, "No Prestige Motorsport listings match your filters.")}
+              </div>
+            </section>
+            <section className="source-panel">
+              <div className="grid-header">
                 <h2>Autotrader</h2>
                 <span className="count">
                   {loading
@@ -801,11 +842,21 @@ function App() {
             <div className="modal-header">
               <h2>Auction Details</h2>
               <button
+                type="button"
                 className="modal-close"
-                onClick={() => setSelected(null)}
+                onClickCapture={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  setSelected(null);
+                }}
+                onClick={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  setSelected(null);
+                }}
                 aria-label="Close auction details"
               >
-                ✕
+                ×
               </button>
             </div>
             <div className="modal-body">
@@ -853,6 +904,16 @@ function App() {
                 <Detail l="Most Recent Bid:" v={timeAgo(selected.lastBidAt)} />
                 <Detail l="Min. Bid Increase:" v="$500" />
                 <p className="est-note">*Estimated from Australian market comparables</p>
+                {(selected.exteriorGrade || selected.interiorGrade || selected.ownershipHistory || selected.auctionSalesPoints?.length || selected.mileageWarning) && (
+                  <div className="auction-sheet">
+                    <div className="modal-section-title">Auction Sheet</div>
+                    <Detail l="Exterior grade:" v={selected.exteriorGrade ? `${selected.exteriorGrade}${selected.exteriorGradeDescription ? ` — ${selected.exteriorGradeDescription}` : ""}` : "-"} />
+                    <Detail l="Interior grade:" v={selected.interiorGrade ? `${selected.interiorGrade}${selected.interiorGradeDescription ? ` — ${selected.interiorGradeDescription}` : ""}` : "-"} />
+                    <Detail l="Ownership history:" v={selected.ownershipHistory ?? "-"} />
+                    <Detail l="Mileage note:" v={selected.mileageWarning ?? "-"} />
+                    {selected.auctionSalesPoints?.length ? <div className="sheet-points"><strong>Equipment and sales points</strong><ul>{selected.auctionSalesPoints.map((point) => <li key={point}>{point}</li>)}</ul></div> : null}
+                  </div>
+                )}
               </div>
               <div className="modal-col">
                 <div className="modal-section-title">Car Details</div>
@@ -909,9 +970,6 @@ function App() {
               </div>
             </div>
             <div className="make-bid-bar">
-              <button className="back-btn" onClick={() => setSelected(null)}>
-                Auction Browser
-              </button>
               <label>Make Bid</label>
               <span className="bid-label-bold">Bid:</span>
               <div className="bid-amount-wrap">
