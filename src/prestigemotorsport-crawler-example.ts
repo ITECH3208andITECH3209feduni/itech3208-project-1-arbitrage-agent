@@ -30,12 +30,13 @@ Options:
   --model <name>      Optional model to filter by (e.g. alphard)
   --year-from <n>     Optional year_from filter (e.g. 2015)
   --year-to <n>       Optional year_to filter (e.g. 2020)
+  --auction-date <Today|Future|Past>  Auction tab (default: Past)
   --url <url>         Direct Prestige Motorsport auction listing URL; can repeat
   --max <n>           Max listings (default: 10)
-  --no-require-sold   Include listings that aren't confirmed SOLD (default: sold-only)
+  --no-require-sold   Include listings that aren't confirmed SOLD (default: sold-only for Past)
+  --require-sold      Require confirmed SOLD listings explicitly
 
 Requires OPENROUTER_API_KEY, CONVEX_URL, and CONVEX_INGEST_SECRET.`);
-  process.exit(0);
 }
 
 const result = await crawlPrestigeMotorsport({
@@ -43,9 +44,10 @@ const result = await crawlPrestigeMotorsport({
   model: get("model"),
   yearFrom: normalizeYear(get("year-from")),
   yearTo: normalizeYear(get("year-to")),
+  auctionDate: get("auction-date") as "Today" | "Future" | "Past" | undefined,
   urls: getAll("url"),
   max: Number(get("max")) || 10,
-  requireSold: !args.includes("--no-require-sold"),
+  requireSold: args.includes("--require-sold") ? true : args.includes("--no-require-sold") ? false : undefined,
 });
 
 console.log(`${result.totalExtracted}/${result.totalFound} Prestige Motorsport records → ${result.outputPath}`);

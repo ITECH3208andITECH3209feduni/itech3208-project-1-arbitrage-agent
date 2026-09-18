@@ -4,7 +4,6 @@ import { normalizeRecord } from "./normalizer.js";
 import { exportToConvex } from "./convexExporter.js";
 import { canonicalizeUrl } from "./utils.js";
 import { validateVehicleRecord } from "./vehicleValidation.js";
-import { applyEstimatedProfitAud } from "./profitEstimator.js";
 import type { CrawlResult, VehicleRecord } from "./types.js";
 
 export interface CrawlTarget {
@@ -163,7 +162,8 @@ export async function runCrawlPipeline(config: CrawlPipelineConfig): Promise<Cra
       if (record.url) failedUrls.add(canonicalizeUrl(record.url));
       continue;
     }
-    normalized.push(applyEstimatedProfitAud(validated));
+    // Estimation is deliberately deferred to the Convex orchestration path, where current FX and comparables are available.
+    normalized.push(validated);
   }
 
   const extractedUrls = new Set(normalized.map((r) => canonicalizeUrl(r.url)));

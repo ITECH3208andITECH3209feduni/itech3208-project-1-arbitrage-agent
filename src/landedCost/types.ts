@@ -8,8 +8,15 @@ export type LandedCostInput = {
   /** JPY to AUD rate, for example 0.0099. Needed when purchasePriceJpy is used. */
   jpyToAudRate?: number | null;
 
-  /** Costs in Japan to get the car onto the ship (agent fee, inland transport, export paperwork), in AUD. */
+  /** Legacy aggregate of Japan-side costs. Used only when no explicit category is supplied. */
   japanSideCostsAud?: number | null;
+  agentFeeAud?: number | null;
+  inlandTransportAud?: number | null;
+  exportPaperworkAud?: number | null;
+  wharfHandlingAud?: number | null;
+  customsBrokerageAud?: number | null;
+  biosecurityAud?: number | null;
+  adrEngineeringAud?: number | null;
 
   /** Sea freight from Japan to Australia in AUD. Uses a default estimate if not supplied. */
   freightAud?: number | null;
@@ -32,7 +39,10 @@ export type LandedCostResult = {
   breakdown: Record<string, LineItem>;
   fobValueAud: number;
   customsDutyRate: number;
+  exchangeRateUsed: number | null;
   valueOfTaxableImportationAud: number;
+  /** Purchase through Australian arrival, including import taxes, before VIC compliance. */
+  startingCostAud: number;
   /** FOB + freight + insurance + customs duty + import GST. */
   totalLandedCostAud: number;
   /** Repair costs, kept separate so they are only counted once. */
@@ -40,7 +50,7 @@ export type LandedCostResult = {
 };
 
 export type DriveawayInput = LandedCostInput & {
-  /** Everything Kate's compliance module needs, except vehicleValue and roadworthyRepairs, which are filled in here. */
+  /** Everything the compliance module needs, except vehicleValue and roadworthyRepairs, which are filled in here. */
   compliance: Omit<ComplianceInput, "vehicleValue" | "roadworthyRepairs">;
 };
 

@@ -1,4 +1,5 @@
 import type {
+  AuctionSheetInput,
   ComplianceAssessment,
   ComplianceInput,
   ComplianceResult,
@@ -15,31 +16,69 @@ function money(value: number): number {
 }
 
 export function validateComplianceInput(input: ComplianceInput): void {
-  if (input.vehicleValue < 0) {
-    throw new Error("vehicleValue must be >= 0");
-  }
-
-  if (input.ageYears < 0) {
-    throw new Error("ageYears must be >= 0");
+  const numericFields: Array<keyof ComplianceInput> = [
+    "vehicleValue", "ageYears", "registrationFee", "tacFee", "plateFee", "ravAssessmentFee", "roadworthyRepairs",
+    "vassCertificate", "complianceWorkshopFee", "modificationCosts", "overrideRoadworthyInspection",
+    "overrideVassCertificate", "overrideRegistrationFee", "overrideTacFee", "overridePlateFee", "contingencyFee",
+  ];
+  for (const field of numericFields) {
+    const value = input[field];
+    if (value != null && (typeof value !== "number" || !Number.isFinite(value) || value < 0)) {
+      throw new Error(`${String(field)} must be a finite number >= 0`);
+    }
   }
 
   const isPassengerVehicle = input.isPassengerVehicle ?? true;
   const isNonPassengerVehicle = input.isNonPassengerVehicle ?? false;
+  if (isPassengerVehicle && isNonPassengerVehicle) throw new Error("Vehicle cannot be both passenger and non-passenger");
+  if (!isPassengerVehicle && !isNonPassengerVehicle) throw new Error("Vehicle must be passenger or non-passenger");
 
-  if (isPassengerVehicle && isNonPassengerVehicle) {
-    throw new Error("Vehicle cannot be both passenger and non-passenger");
-  }
-
-  if (!isPassengerVehicle && !isNonPassengerVehicle) {
-    throw new Error("Vehicle must be passenger or non-passenger");
+  const damageCodes = input.auctionSheet?.damageCodes;
+  if (damageCodes != null && (!Array.isArray(damageCodes) || damageCodes.some((code) => typeof code !== "string"))) {
+    throw new Error("auctionSheet.damageCodes must be an array of strings");
   }
 }
 
+/** Estimate a separately visible allowance for auction-sheet condition risk. */
+export function estimateAuctionSheetRisk(input: AuctionSheetInput | null | undefined): { cost: number; reasons: string[] } {
+  if (!input) return { cost: 0, reasons: [] };
+  let cost = 0;
+  const reasons: string[] = [];
+  const exterior = input.exteriorGrade?.trim().toUpperCase() ?? "";
+  const interior = input.interiorGrade?.trim().toUpperCase() ?? "";
+  if (/^(R|RA|1|2)/.test(exterior)) { cost += 2500; reasons.push(`exterior grade ${exterior} indicates significant condition risk`); }
+  else if (/^3/.test(exterior)) { cost += 1200; reasons.push(`exterior grade ${exterior} indicates repair risk`); }
+  else if (exterior && !/^(4|5|6|A|S|B)/.test(exterior)) { cost += 600; reasons.push(`unrecognised exterior grade ${exterior} requires review`); }
+  if (/^D/.test(interior)) { cost += 1000; reasons.push(`interior grade ${interior} indicates significant wear`); }
+  else if (/^C/.test(interior)) { cost += 500; reasons.push(`interior grade ${interior} indicates wear`); }
+  if (input.mileageWarning?.trim()) { cost += 750; reasons.push(`mileage warning: ${input.mileageWarning.trim()}`); }
+  if (input.ownershipHistory?.trim()) {
+    const history = input.ownershipHistory.trim();
+    const amount = /accident|repair|flood|fire|replaced|structur/i.test(history) ? 1250 : 250;
+    cost += amount;
+    reasons.push(`ownership history requires review: ${history}`);
+  }
+  const notes = input.inspectorNotes?.trim();
+  if (notes) {
+    const amount = /accident|damage|rust|corrosion|leak|repair|oil|flood|fire|broken/i.test(notes) ? 1500 : 300;
+    cost += amount;
+    reasons.push(`inspector notes require review: ${notes}`);
+  }
+  const damageCodes = input.damageCodes?.filter(Boolean) ?? [];
+  if (damageCodes.length > 0) {
+    cost += Math.min(2000, damageCodes.length * 400);
+    reasons.push(`auction damage codes present: ${damageCodes.join(", ")}`);
+  }
+  return { cost: money(cost), reasons };
+}
+
 export function calcLct(vehicleValue: number, isFuelEfficient: boolean): number {
+  if (!Number.isFinite(vehicleValue) || vehicleValue < 0) {
+    throw new Error("vehicleValue must be a finite number >= 0");
+  }
   const threshold = isFuelEfficient
     ? LCT_THRESHOLD_FUEL_EFFICIENT_2026_27
     : LCT_THRESHOLD_OTHER_2026_27;
-
   return money(Math.max(0, vehicleValue - threshold) * LCT_RATE);
 }
 
@@ -50,6 +89,9 @@ export function calcVicMotorVehicleDuty(input: {
   isNonPassengerVehicle: boolean;
   isNonPassengerNew: boolean;
 }): number {
+  if (!Number.isFinite(input.vehicleValue) || input.vehicleValue < 0) {
+    throw new Error("vehicleValue must be a finite number >= 0");
+  }
   const units = Math.ceil(input.vehicleValue / 200);
 
   if (input.isPassengerVehicle && input.isGreenPassengerCar) {
@@ -74,6 +116,9 @@ export function calcVicMotorVehicleDuty(input: {
 }
 
 export function estimateRoadworthy(ageYears: number, is4wd: boolean): number {
+  if (!Number.isFinite(ageYears) || ageYears < 0) {
+    throw new Error("ageYears must be a finite number >= 0");
+  }
   return ageYears > 15 || is4wd ? 330 : 280;
 }
 
@@ -150,6 +195,16 @@ export function assessRequirements(input: ComplianceInput): ComplianceAssessment
     warnings.push("Plate fee not supplied; total excludes this unless overridden.");
   }
 
+  if (input.importedVehicle !== false && input.ravAssessmentFee == null) {
+    warnings.push("RAV assessment fee not supplied; total excludes this unless overridden.");
+  }
+
+  const auctionRisk = estimateAuctionSheetRisk(input.auctionSheet);
+  if (auctionRisk.reasons.length > 0) {
+    warnings.push(...auctionRisk.reasons.map((reason) => `Auction-sheet risk: ${reason}.`));
+    manualReviewRequired = true;
+  }
+
   return {
     requiresRwc,
     requiresRavCheck,
@@ -204,6 +259,9 @@ export function calculateComplianceModule(
       ? input.overridePlateFee
       : input.plateFee ?? 0;
 
+  const ravAssessmentFee = input.ravAssessmentFee ?? 0;
+  const auctionRisk = estimateAuctionSheetRisk(input.auctionSheet);
+
   const complianceWorkshopFee =
     input.complianceWorkshopFee != null
       ? input.complianceWorkshopFee
@@ -227,6 +285,11 @@ export function calculateComplianceModule(
         ? "estimate"
         : "manual_input_required",
       "Estimate or analyst input"
+    ),
+    ravAssessmentFee: buildLineItem(
+      ravAssessmentFee,
+      input.ravAssessmentFee == null ? "manual_input_required" : "official_but_variable",
+      "RAV assessment fee input"
     ),
     registrationFee: buildLineItem(
       registrationFee,
@@ -265,6 +328,11 @@ export function calculateComplianceModule(
       "Analyst or inspection estimate"
     ),
     contingencyFee: buildLineItem(contingencyFee, "estimate", "Business rule"),
+    auctionSheetRiskCost: buildLineItem(
+      auctionRisk.cost,
+      auctionRisk.reasons.length === 0 ? "estimate" : "manual_input_required",
+      auctionRisk.reasons.length === 0 ? "No auction-sheet risk signals" : auctionRisk.reasons.join("; ")
+    ),
   };
 
   const totalComplianceCost = money(
@@ -276,6 +344,8 @@ export function calculateComplianceModule(
     module: "vehicle_compliance",
     assessment,
     inputs: {
+      ravAssessmentFee,
+      auctionSheet: input.auctionSheet ?? null,
       vehicleValue: input.vehicleValue,
       ageYears: input.ageYears,
       is4wd: !!input.is4wd,

@@ -16,7 +16,7 @@ const record = (overrides: Partial<VehicleRecord> = {}) => ({
 describe("estimation orchestration", () => {
   it("produces complete purchase/import fields for JP records", () => {
     const result = orchestrateEstimates([record()], new Map(), 0.01)[0];
-    expect(result).toMatchObject({ purchaseAud: 20_000, importCostAud: 6_400, estimatedProfitAud: null, resaleComparableCount: 0 });
+    expect(result).toMatchObject({ purchaseAud: 20_000, importCostAud: 7_365.2, landedCostAud: 25_410, driveawayCostAud: 27_365.2, estimatedProfitAud: null, resaleComparableCount: 0 });
   });
 
   it("clears estimates when comparables are sparse", () => {

@@ -1,9 +1,12 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { ConvexProvider, ConvexReactClient, useAction, useQuery } from "convex/react";
+import { ConvexProvider, ConvexReactClient, useAction, useMutation, useQuery } from "convex/react";
 import { api } from "../../convex/_generated/api";
 import { convertJpyToAud, getJpyAudRate } from "../exchangeRate";
 import { normalizeYear } from "../year";
+import { estimateResaleAud } from "../profitEstimator";
+import { parseAnalystComparables, type AnalystComparable } from "../analystData";
+import type { VehicleRecord } from "../types";
 import { ArchitectureFlowchart } from "./ArchitectureFlowchart";
 import { estimateFreshness, presentAuthoritativeEstimate } from "./vehiclePresentation";
 import "./styles.css";
@@ -27,10 +30,13 @@ type Vehicle = {
   seats: number | null;
   dealer: string;
   location: string;
-  description: string;
   images: string[];
+  auctionSheetImages?: string[];
   auctionNumber?: string;
   auctionHouse?: string;
+  registrationYear?: number | null;
+  chassisNumber?: string;
+  inspectorNotes?: string;
   exteriorGrade?: string;
   exteriorGradeDescription?: string;
   interiorGrade?: string;
@@ -38,6 +44,7 @@ type Vehicle = {
   mileageWarning?: string;
   ownershipHistory?: string;
   auctionSalesPoints?: string[];
+  damageCodes?: string[];
   soldStatus?: "sold" | "unsold" | "unknown";
   auctionEndTime?: string;
   lastBidAt?: string;
@@ -46,13 +53,19 @@ type Vehicle = {
   estimatedResaleAud?: number | null;
   estimatedResaleLowAud?: number | null;
   estimatedResaleHighAud?: number | null;
-  resaleComparableCount?: number;
-  resaleBasis?: "asking" | "sold" | "mixed" | null;
+  importCostAud?: number | null;
+  landedCostAud?: number | null;
+  startingCostAud?: number | null;
+  driveawayCostAud?: number | null;
+  exchangeRateUsed?: number | null;
+  costWarnings?: string[] | null;
+  complianceWarnings?: string[] | null;
+  landedCostBreakdown?: Record<string, { amount: number; confidence: string; source: string }> | null;
+  complianceBreakdown?: Record<string, { amount: number; confidence: string; source: string }> | null;
   resaleConfidence?: number | null;
   resaleConfidenceLabel?: "low" | "medium" | "high";
   resaleConfidenceReasons?: string[] | null;
   purchaseAud?: number | null;
-  importCostAud?: number | null;
   extractedAt?: string;
   updatedAt?: string;
   market?: "JP" | "AU";
@@ -117,12 +130,11 @@ function sourcePrefix(source?: string) {
   return normalized.toUpperCase() || "SOURCE";
 }
 type ListingSource = "goonet" | "autotrader" | "prestigemotorsport";
-
 function isSource(v: Vehicle, source: ListingSource) {
   const normalized = normalizedSource(v.source);
-  return source === "autotrader"
-    ? normalized.includes("autotrader")
-    : normalized.includes("goo");
+  if (source === "autotrader") return normalized.includes("autotrader");
+  if (source === "prestigemotorsport") return normalized.includes("prestige");
+  return normalized.includes("goo");
 }
 function userError(err: unknown) {
   const message = err instanceof Error ? err.message : String(err);
@@ -151,8 +163,22 @@ function countdown(iso?: string) {
   return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
 }
 
-function toView(v: Vehicle, rate: number): ViewVehicle {
-  const estimate = presentAuthoritativeEstimate(v);
+function toView(v: Vehicle, rate: number, analystComparables: readonly AnalystComparable[] = []): ViewVehicle {
+  const authoritative = presentAuthoritativeEstimate(v);
+  const localResale = v.market === "JP" && analystComparables.length
+    ? estimateResaleAud(v as unknown as VehicleRecord, analystComparables as unknown as VehicleRecord[], { now: new Date() })
+    : null;
+  const estimate = localResale ? {
+    resale: localResale.estimatedResaleAud,
+    low: localResale.estimatedResaleLowAud,
+    high: localResale.estimatedResaleHighAud,
+    profit: v.purchaseAud == null || v.importCostAud == null ? null : Math.round((localResale.estimatedResaleAud - v.purchaseAud - v.importCostAud) * 100) / 100,
+    confidence: Math.round(localResale.resaleConfidence * 100),
+    confidenceLabel: localResale.resaleConfidenceLabel,
+    comparableCount: localResale.resaleComparableCount,
+    basis: localResale.resaleBasis,
+    reasons: [...localResale.resaleConfidenceReasons, "Analyst-owned local data included"],
+  } : authoritative;
   const audPrice = v.purchaseAud ?? (v.currency === "AUD" ? v.price : convertJpyToAud(v.price, rate));
   const lastChecked = v.updatedAt ?? v.extractedAt;
   return {
@@ -172,9 +198,7 @@ function toView(v: Vehicle, rate: number): ViewVehicle {
     confidenceReasons: estimate.reasons,
     lastChecked,
     stale: estimateFreshness(lastChecked).stale,
-    auctionNo:
-      v.auctionNumber ??
-      `${sourcePrefix(v.source)}-${String(hashStr(v.url)).slice(0, 9).padEnd(9, "0")}`,
+    auctionNo: v.auctionNumber ?? `${sourcePrefix(v.source)}-${String(hashStr(v.url)).slice(0, 9).padEnd(9, "0")}`,
   };
 }
 
@@ -204,6 +228,21 @@ function App() {
   const [refreshStatus, setRefreshStatus] = useState<{ url: string; message: string; error: boolean } | null>(null);
   const [scraping, setScraping] = useState(false);
   const [scrapeSeconds, setScrapeSeconds] = useState(0);
+  const [requireSold, setRequireSold] = useState(true);
+  const [auctionDate, setAuctionDate] = useState<"Today" | "Future" | "Past">("Past");
+  const [japaneseOriginProof, setJapaneseOriginProof] = useState(false);
+  const [modifiedVehicle, setModifiedVehicle] = useState(false);
+  const [convertedToRhd, setConvertedToRhd] = useState(false);
+  const [costInputs, setCostInputs] = useState<Record<string, string>>({});
+  const costFields = [
+    ["agentFeeAud", "Agent fee"], ["inlandTransportAud", "Japan inland transport"], ["exportPaperworkAud", "Export paperwork"],
+    ["wharfHandlingAud", "Wharf/port handling"], ["customsBrokerageAud", "Customs brokerage"], ["biosecurityAud", "Biosecurity"], ["adrEngineeringAud", "ADR engineering"],
+    ["registrationFee", "Registration"], ["tacFee", "TAC"], ["plateFee", "Plates"], ["ravAssessmentFee", "RAV assessment"],
+  ] as const;
+  const [analystComparables, setAnalystComparables] = useState<AnalystComparable[]>(() => {
+    try { return parseAnalystComparables(window.localStorage.getItem("analyst-comparables") ?? "[]", "json"); } catch { return []; }
+  });
+  const FACETS_PAGE_SIZE = 500;
   type FacetPage = {
     makes: string[];
     modelsByMake: Record<string, string[]>;
@@ -211,9 +250,15 @@ function App() {
     isDone: boolean;
   };
 
-  const FACETS_PAGE_SIZE = 500;
   const scrapeVehicles = useAction(api.scrape.vehicles);
+  const importAnalystSales = useMutation(api.analystSales.importBatch);
+  const remoteAnalystSales = useQuery(api.analystSales.list, { limit: 1000 }) as AnalystComparable[] | undefined;
   const refreshVehicle = useAction(api.scrape.refreshVehicle);
+  const allAnalystComparables = useMemo(() => {
+    const combined = [...(remoteAnalystSales ?? []), ...analystComparables];
+    const key = (sale: AnalystComparable) => [sale.make?.toLowerCase(), sale.model?.toLowerCase(), sale.price, sale.year ?? "", sale.mileage ?? ""].join("\u0000");
+    return [...new Map(combined.map((sale) => [key(sale), sale])).values()];
+  }, [remoteAnalystSales, analystComparables]);
   const [facetCursor, setFacetCursor] = useState<string | undefined>(undefined);
   const [loadedFacetCursor, setLoadedFacetCursor] = useState<string | null>(null);
   const [facetsDone, setFacetsDone] = useState(false);
@@ -268,7 +313,7 @@ function App() {
     return () => window.clearInterval(id);
   }, [scraping]);
 
-  const all = useMemo(() => raw.map((v) => toView(v, rate)), [raw, rate]);
+  const all = useMemo(() => raw.map((v) => toView(v, rate, allAnalystComparables)), [raw, rate, allAnalystComparables]);
   useEffect(() => {
     if (!selected) return;
     const current = all.find((vehicle) => vehicle._id === selected._id);
@@ -573,11 +618,19 @@ function App() {
       setScrapeStatus("Enter Prestige Motorsport make or URL.");
       return;
     }
-    if (scrapeSource === "prestigemotorsport" && !model) {
-      setScrapeStatus("Enter a Prestige Motorsport model.");
+    if (scrapeSource === "prestigemotorsport" && !model && urls.length === 0) {
+      setScrapeStatus("Enter a Prestige Motorsport model, make, or direct URL.");
       return;
     }
-
+    const costOverrides = {
+      ...Object.fromEntries(costFields.flatMap(([key]) => {
+        const value = Number(costInputs[key]);
+        return Number.isFinite(value) && value >= 0 ? [[key, value]] : [];
+      })),
+      japaneseOriginProof,
+      modifiedVehicle,
+      convertedToRhd,
+    };
     setScraping(true);
     setScrapeStatus("Scraping… this can take a minute.");
     try {
@@ -589,11 +642,12 @@ function App() {
         query: scrapeSource === "autotrader" && urls.length === 0 ? query : undefined,
         urls: scrapeSource !== "goonet" && urls.length ? urls : undefined,
         year,
+        auctionDate: scrapeSource === "prestigemotorsport" ? auctionDate : undefined,
+        costOverrides,
         max,
+        requireSold: scrapeSource === "prestigemotorsport" ? requireSold : undefined,
       });
-      setScrapeStatus(
-        `Done: ${result.upserted} saved, ${result.totalFailed} failed.`,
-      );
+      setScrapeStatus(`Done: ${result.upserted} saved, ${result.totalFailed} failed.`);
     } catch (err) {
       setScrapeStatus(userError(err));
     } finally {
@@ -645,6 +699,11 @@ function App() {
               <option value="autotrader">Autotrader</option>
               <option value="prestigemotorsport">Prestige Motorsport</option>
             </select>
+            {scrapeSource === "prestigemotorsport" && <select value={auctionDate} onChange={(e) => setAuctionDate(e.target.value as "Today" | "Future" | "Past")} aria-label="Prestige auction date">
+              <option value="Today">Today auctions</option>
+              <option value="Future">Future auctions</option>
+              <option value="Past">Past auctions</option>
+            </select>}
             <input
               value={scrapeBrand}
               onChange={(e) => setScrapeBrand(e.target.value)}
@@ -653,8 +712,7 @@ function App() {
             <input
               value={scrapeModel}
               onChange={(e) => setScrapeModel(e.target.value)}
-              placeholder={scrapeSource === "prestigemotorsport" ? "Model required" : "Model optional"}
-              required={scrapeSource === "prestigemotorsport"}
+              placeholder={scrapeSource === "prestigemotorsport" ? "Model optional (or use URL)" : "Model optional"}
             />
             <input
               type="number"
@@ -674,6 +732,7 @@ function App() {
               }
             />
             <div className="scrape-row">
+            {scrapeSource === "prestigemotorsport" && <label className="check-item"><input type="checkbox" checked={requireSold} onChange={(e) => setRequireSold(e.target.checked)} /> Only confirmed sold listings</label>}
               <input
                 type="number"
                 min="1"
@@ -703,6 +762,36 @@ function App() {
             )}
             {scrapeStatus && <p>{scrapeStatus}</p>}
           </form>
+          <div className="filter-section cost-config-panel">
+            <h3>Import and compliance inputs</h3>
+            <p className="config-note">Optional values override defaults for the next scrape. Blank values remain estimates/warnings.</p>
+            {costFields.map(([key, label]) => <input key={key} type="number" min="0" placeholder={`${label} AUD`} value={costInputs[key] ?? ""} onChange={(e) => setCostInputs((current) => ({ ...current, [key]: e.target.value }))} />)}
+            <label className="check-item"><input type="checkbox" checked={japaneseOriginProof} onChange={(e) => setJapaneseOriginProof(e.target.checked)} /> Japanese origin proof (JAEPA)</label>
+            <label className="check-item"><input type="checkbox" checked={modifiedVehicle} onChange={(e) => setModifiedVehicle(e.target.checked)} /> Modified vehicle</label>
+            <label className="check-item"><input type="checkbox" checked={convertedToRhd} onChange={(e) => setConvertedToRhd(e.target.checked)} /> Converted to RHD</label>
+          </div>
+          <div className="filter-section analyst-panel">
+            <h3>Analyst sale data</h3>
+            <input type="file" accept=".csv,.json,application/json,text/csv" onChange={async (event) => {
+              const file = event.target.files?.[0];
+              if (!file) return;
+              try {
+                const format = file.name.toLowerCase().endsWith(".json") ? "json" : "csv";
+                const parsed = parseAnalystComparables(await file.text(), format);
+                const importable = parsed.filter((sale): sale is AnalystComparable & { make: string; model: string; price: number } => sale.make != null && sale.model != null && sale.price != null);
+                const batchId = globalThis.crypto?.randomUUID?.() ?? `analyst-${Date.now()}`;
+                const result = await importAnalystSales({
+                  batchId,
+                  sales: importable.map(({ make, model, price, year, mileage, soldStatus }) => ({ make, model, price, year: year ?? null, mileage: mileage ?? null, soldStatus })),
+                });
+                setAnalystComparables(parsed);
+                window.localStorage.setItem("analyst-comparables", JSON.stringify(parsed));
+                setScrapeStatus(`Synced ${result.imported} analyst comparables to Convex; ${result.skipped} duplicates/invalid rows skipped.`);
+              } catch (error) { setScrapeStatus(`Analyst file error: ${userError(error)}`); }
+            }} />
+            <small>{allAnalystComparables.length} analyst comparables synced from Convex; provenance remains separate from scraped data.</small>
+          </div>
+          <div className="ui-legend"><strong>Key</strong><span>Confidence: official rule = statutory; official but variable = fee varies; estimate = team default; manual input required = verify.</span><span>Auction sheet: exterior grade is condition (higher is better); interior A–D is trim condition; mileage warnings flag odometer reliability.</span></div>
           {[
             ["Min Price:", minPrice, setMinPrice, "Min Price Here"],
             ["Max Price:", maxPrice, setMaxPrice, "Max Price Here"],
@@ -875,6 +964,7 @@ function App() {
                 ) : (
                   <div className="modal-car-img placeholder">No Image</div>
                 )}
+                {selected.auctionSheetImages?.length ? <div className="auction-gallery"><strong>Auction sheet images</strong><div>{selected.auctionSheetImages.map((image) => <img key={image} src={image} alt="Auction sheet" loading="lazy" />)}</div></div> : null}
                 <div className="modal-section-title">Buyers Details</div>
                 <Detail l="Auction Number:" v={selected.auctionNo} />
                 <Detail
@@ -882,9 +972,15 @@ function App() {
                   v={fmtAUD(selected.audPrice)}
                   cls="price"
                 />
+                <Detail l="JPY→AUD rate used:" v={selected.exchangeRateUsed == null ? "-" : selected.exchangeRateUsed.toFixed(6)} />
                 <Detail l="Est. Resale Price:" v={fmtAUD(selected.resale)} />
                 <Detail l="Resale Range:" v={selected.resaleLow == null || selected.resaleHigh == null ? "-" : `${fmtAUD(selected.resaleLow)} - ${fmtAUD(selected.resaleHigh)}`} />
-                <Detail l="Est. Import Fees:" v={fmtAUD(selected.importFees)} />
+                <Detail l="Est. Import/Driveaway Costs:" v={fmtAUD(selected.importFees)} />
+                <Detail l="Starting cost to Australia:" v={fmtAUD(selected.startingCostAud)} />
+                <Detail l="Landed cost:" v={fmtAUD(selected.landedCostAud)} />
+                <Detail l="Victorian driveaway:" v={fmtAUD(selected.driveawayCostAud)} />
+                {selected.landedCostBreakdown && <div className="cost-breakdown"><strong>Landed cost breakdown</strong><ul>{Object.entries(selected.landedCostBreakdown).map(([name, item]) => <li key={`landed-${name}`}><span>{name}</span><span>{fmtAUD(item.amount)} <small>({item.confidence})</small></span></li>)}</ul></div>}
+                {selected.complianceBreakdown && <div className="cost-breakdown"><strong>Victorian compliance breakdown</strong><ul>{Object.entries(selected.complianceBreakdown).map(([name, item]) => <li key={`compliance-${name}`}><span>{name}</span><span>{fmtAUD(item.amount)} <small>({item.confidence})</small></span></li>)}</ul></div>}
                 <Detail
                   l="Est. Profit at Price:"
                   v={fmtAUD(selected.profit)}
@@ -916,6 +1012,10 @@ function App() {
                     <Detail l="Interior grade:" v={selected.interiorGrade ? `${selected.interiorGrade}${selected.interiorGradeDescription ? ` — ${selected.interiorGradeDescription}` : ""}` : "-"} />
                     <Detail l="Ownership history:" v={selected.ownershipHistory ?? "-"} />
                     <Detail l="Mileage note:" v={selected.mileageWarning ?? "-"} />
+                    <Detail l="Registration year:" v={selected.registrationYear == null ? "-" : String(selected.registrationYear)} />
+                    <Detail l="Chassis:" v={selected.chassisNumber ?? "-"} />
+                    <Detail l="Inspector notes:" v={selected.inspectorNotes ?? "-"} />
+                    <Detail l="Damage codes:" v={selected.damageCodes?.join(", ") ?? "-"} />
                     {selected.auctionSalesPoints?.length ? <div className="sheet-points"><strong>Equipment and sales points</strong><ul>{selected.auctionSalesPoints.map((point) => <li key={point}>{point}</li>)}</ul></div> : null}
                   </div>
                 )}

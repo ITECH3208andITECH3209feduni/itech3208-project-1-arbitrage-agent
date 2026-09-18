@@ -31,6 +31,20 @@ const getComparables = makeFunctionReference<
   VehicleRecord[]
 >("vehicles:getComparables");
 
+const getAnalystComparables = makeFunctionReference<
+  "query",
+  { make: string; model: string; limit?: number },
+  VehicleRecord[]
+>("analystSales:getComparables");
+
+async function getAllComparables(ctx: any, make: string, model: string, limit: number): Promise<VehicleRecord[]> {
+  const [market, analyst] = await Promise.all([
+    ctx.runQuery(getComparables, { make, model, limit }),
+    ctx.runQuery(getAnalystComparables, { make, model, limit }),
+  ]);
+  return [...market, ...analyst];
+}
+
 function memoryStorage(): Storage {
   const values = new Map<string, string>();
   return {
@@ -72,9 +86,8 @@ export const refreshVehicle = action({
     if (!record.make || !record.model) {
       throw new Error(`Vehicle refresh missing make/model for ${url}; no usable stored fallback exists`);
     }
-
     const rate = await getJpyAudRate({ storage: memoryStorage() });
-    const comparables = await ctx.runQuery(getComparables, { make: record.make, model: record.model, limit: 50 });
+    const comparables = await getAllComparables(ctx, record.make, record.model, 50);
     const prepared = prepareRefreshRecord(
       { ...record, market: record.market ?? existing?.market ?? "JP", currency: record.currency ?? existing?.currency ?? "JPY", source: record.source ?? existing?.source ?? "goo-net", sourceType: record.sourceType ?? existing?.sourceType ?? "dealer" },
       existing,
@@ -108,7 +121,7 @@ export const recomputeVehicle = action({
     if (!existing.make?.trim() || !existing.model?.trim()) throw new Error(`Stored vehicle missing make/model for ${url}`);
 
     const rate = await getJpyAudRate({ storage: memoryStorage() });
-    const comparables = await ctx.runQuery(getComparables, { make: existing.make, model: existing.model, limit: 50 });
+    const comparables = await getAllComparables(ctx, existing.make, existing.model, 50);
     const prepared = prepareRefreshRecord(withoutConvexFields(existing), null, comparables, rate.rate);
     const secret = process.env.CONVEX_INGEST_SECRET;
     if (!secret) throw new Error("CONVEX_INGEST_SECRET required");
@@ -133,6 +146,15 @@ export const vehicles = action({
     query: v.optional(v.string()),
     urls: v.optional(v.array(v.string())),
     year: v.optional(v.number()),
+    auctionDate: v.optional(v.union(v.literal("Today"), v.literal("Future"), v.literal("Past"))),
+    requireSold: v.optional(v.boolean()),
+    costOverrides: v.optional(v.object({
+      agentFeeAud: v.optional(v.number()), inlandTransportAud: v.optional(v.number()), exportPaperworkAud: v.optional(v.number()),
+      wharfHandlingAud: v.optional(v.number()), customsBrokerageAud: v.optional(v.number()), biosecurityAud: v.optional(v.number()), adrEngineeringAud: v.optional(v.number()),
+      registrationFee: v.optional(v.number()), tacFee: v.optional(v.number()), plateFee: v.optional(v.number()), ravAssessmentFee: v.optional(v.number()),
+      japaneseOriginProof: v.optional(v.boolean()), modifiedVehicle: v.optional(v.boolean()), convertedToRhd: v.optional(v.boolean()),
+      isFuelEfficient: v.optional(v.boolean()), isGreenPassengerCar: v.optional(v.boolean()),
+    })),
     max: v.number(),
   },
     handler: async (ctx, args) => {
@@ -163,12 +185,13 @@ export const vehicles = action({
               model,
               yearFrom: year,
               yearTo: year,
+              auctionDate: args.auctionDate,
               urls: args.urls,
               max,
+              requireSold: args.requireSold,
               persist: false,
             })
           : await crawlGoonet({ brand, model, brandUrl: args.brandUrl, year, max, persist: false });
-
     const defaultsBySource = {
       goonet: { market: "JP" as const, currency: "JPY" as const, source: "goo-net", sourceType: "dealer" as const },
       autotrader: { market: "AU" as const, currency: "AUD" as const, source: "autotrader", sourceType: "dealer" as const },
@@ -177,6 +200,7 @@ export const vehicles = action({
 
     const records = result.records.map((record) => ({
       ...record,
+      ...args.costOverrides,
       market: record.market ?? defaultsBySource.market,
       currency: record.currency ?? defaultsBySource.currency,
       source: record.source ?? defaultsBySource.source,
@@ -186,9 +210,7 @@ export const vehicles = action({
     }));
 
     const missingMakeModel = records.find((record) => !record.make?.trim() || !record.model?.trim());
-    if (missingMakeModel) {
-      throw new Error(`Scraper returned vehicle without make/model: ${missingMakeModel.url}`);
-    }
+    if (missingMakeModel) throw new Error(`Scraper returned vehicle without make/model: ${missingMakeModel.url}`);
 
     const secret = process.env.CONVEX_INGEST_SECRET;
     if (!secret) throw new Error("CONVEX_INGEST_SECRET required");
@@ -197,14 +219,13 @@ export const vehicles = action({
     const groups = new Map<string, Promise<VehicleRecord[]>>();
     for (const record of jpRecords) {
       const groupKey = `${record.make!.trim().toLowerCase()}\u0000${record.model!.trim().toLowerCase()}`;
-      if (!groups.has(groupKey)) {
-        groups.set(groupKey, ctx.runQuery(getComparables, { make: record.make!, model: record.model!, limit: 50 }));
-      }
+      if (!groups.has(groupKey)) groups.set(groupKey, getAllComparables(ctx, record.make!, record.model!, 50));
     }
     const rate = jpRecords.length > 0 ? await getJpyAudRate({ storage: memoryStorage() }) : null;
     const comparableMap = new Map<string, readonly VehicleRecord[]>();
     for (const [groupKey, promise] of groups) comparableMap.set(groupKey, await promise);
     const enrichedRecords = orchestrateEstimates(records, comparableMap, rate?.rate ?? 0);
+
 
     const upsert = await ctx.runMutation(upsertMany, {
       secret,

@@ -23,6 +23,7 @@ export type ComplianceInput = {
   registrationFee?: number | null;
   tacFee?: number | null;
   plateFee?: number | null;
+  ravAssessmentFee?: number | null;
 
   roadworthyRepairs?: number | null;
   vassCertificate?: number | null;
@@ -36,6 +37,16 @@ export type ComplianceInput = {
   overridePlateFee?: number | null;
 
   contingencyFee?: number;
+  auctionSheet?: AuctionSheetInput | null;
+};
+
+export type AuctionSheetInput = {
+  exteriorGrade?: string | null;
+  interiorGrade?: string | null;
+  mileageWarning?: string | null;
+  ownershipHistory?: string | null;
+  inspectorNotes?: string | null;
+  damageCodes?: string[] | null;
 };
 
 export type LineItem = {

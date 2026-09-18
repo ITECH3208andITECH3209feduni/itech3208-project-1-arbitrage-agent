@@ -2,8 +2,12 @@ import { z } from "zod";
 import type { VehicleRecord } from "./types.js";
 
 const text = z.preprocess((value) => value == null ? "" : value, z.string());
-const nullableNumber = z.preprocess((value) => value == null || value === "" ? null : value, z.number().nullable());
+const finiteNumber = z.number().finite();
+const nullableNumber = z.preprocess((value) => value == null || value === "" ? null : value, finiteNumber.nullable());
+const optionalFiniteNumber = z.preprocess((value) => value == null || value === "" ? undefined : value, finiteNumber.optional());
 const optionalText = z.preprocess((value) => value == null ? undefined : value, z.string().optional());
+const lineItem = z.object({ amount: finiteNumber, confidence: z.enum(["official_rule", "official_but_variable", "estimate", "manual_input_required"]), source: z.string() });
+const lineItems = z.record(lineItem);
 
 const market = z.preprocess((value) => value === "JP" || value === "AU" ? value : undefined, z.enum(["JP", "AU"]).optional());
 const sourceType = z.preprocess(
@@ -52,14 +56,29 @@ export const VehicleRecordSchema = z.object({
   description: text,
   descriptionRaw: text,
   images: z.array(z.string()).catch([]),
+  auctionSheetImages: z.array(z.string()).optional(),
   extractedAt: text,
   auctionNumber: optionalText,
   auctionEndTime: optionalText,
   lastBidAt: optionalText,
   buildDate: optionalText,
+  registrationYear: nullableNumber,
+  chassisNumber: optionalText,
+  inspectorNotes: optionalText,
   soldStatus,
   hammerPriceRaw: optionalText,
   auctionHouse: optionalText,
+  exteriorGrade: optionalText,
+  exteriorGradeDescription: optionalText,
+  interiorGrade: optionalText,
+  interiorGradeDescription: optionalText,
+  mileageWarning: optionalText,
+  ownershipHistory: optionalText,
+  auctionSalesPoints: z.array(z.string()).optional(),
+  damageCodes: z.array(z.string()).optional(),
+  exchangeRateUsed: optionalFiniteNumber,
+  landedCostBreakdown: lineItems.nullable().optional(),
+  complianceBreakdown: lineItems.nullable().optional(),
 });
 
 export function validateVehicleRecord(record: unknown): VehicleRecord | null {

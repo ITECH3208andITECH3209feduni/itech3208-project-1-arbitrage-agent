@@ -229,6 +229,7 @@ export interface RawAuctionSheet {
   salesPointsRaw?: string;
   chassisNumberRaw?: string;
   inspectorNotesRaw?: string;
+  auctionSheetImages?: string[];
 }
 
 export interface TranslatedAuctionSheet {
@@ -243,6 +244,7 @@ export interface TranslatedAuctionSheet {
   salesPoints: { jp: string; en: string }[];
   chassisNumber?: string;
   inspectorNotes?: string;
+  auctionSheetImages: string[];
 }
 
 /** Translate a full raw Japanese auction sheet into a structured, English-readable summary. */
@@ -260,5 +262,8 @@ export function translateAuctionSheet(raw: RawAuctionSheet): TranslatedAuctionSh
     salesPoints: extractSalesPoints(raw.salesPointsRaw),
     chassisNumber: raw.chassisNumberRaw?.trim() || undefined,
     inspectorNotes: raw.inspectorNotesRaw?.trim() || undefined,
+    auctionSheetImages: Array.isArray(raw.auctionSheetImages)
+      ? raw.auctionSheetImages.filter((image) => typeof image === "string" && image.trim() !== "")
+      : [],
   };
 }

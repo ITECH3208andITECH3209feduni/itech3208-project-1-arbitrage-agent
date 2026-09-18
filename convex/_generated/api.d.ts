@@ -8,6 +8,7 @@
  * @module
  */
 
+import type * as analystSales from "../analystSales.js";
 import type * as scrape from "../scrape.js";
 import type * as vehicles from "../vehicles.js";
 
@@ -18,6 +19,7 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  analystSales: typeof analystSales;
   scrape: typeof scrape;
   vehicles: typeof vehicles;
 }>;
