@@ -163,9 +163,29 @@ async function fetchSearchResultsPage(
     },
     body: body.toString(),
   });
-  if (!res.ok) throw new Error(`search_results_car_dev ${res.status} at limit_start=${limitStart}`);
 
-  return JSON.parse(await res.text()) as SearchResultsResponse;
+  const text = await res.text();
+  if (!res.ok) {
+    const serverResponse = (() => {
+      try {
+        return JSON.parse(text) as Record<string, unknown>;
+      } catch {
+        return null;
+      }
+    })();
+
+    const message = serverResponse && typeof serverResponse === "object"
+      ? JSON.stringify(serverResponse)
+      : text.slice(0, 400);
+
+    if (message.toLowerCase().includes("cf-turnstile") || message.toLowerCase().includes("bot check") || message.toLowerCase().includes("cf-ray")) {
+      throw new Error(`search_results_car_dev blocked by Cloudflare bot protection at limit_start=${limitStart}: ${message}`);
+    }
+
+    throw new Error(`search_results_car_dev ${res.status} at limit_start=${limitStart}: ${message}`);
+  }
+
+  return JSON.parse(text) as SearchResultsResponse;
 }
 
 // TODO: verify these selectors against a real cars_html fragment (captured from the
@@ -186,16 +206,19 @@ function extractListingsFromCarsHtml(carsHtml: string): { url: string; priceText
 function isPrestigeMotorsportDetailUrl(url: string): boolean {
   try {
     const u = new URL(url);
-    return ["prestigemotorsport.com.au", "www.prestigemotorsport.com.au"].includes(u.hostname);
+    if (!["prestigemotorsport.com.au", "www.prestigemotorsport.com.au"].includes(u.hostname)) return false;
+
+    const path = u.pathname.toLowerCase();
+    const hasDirectListingPattern = /(?:vehicle|auction-vehicle-display|lot|car)/i.test(path) || u.searchParams.has("car_id");
+    return hasDirectListingPattern || path.includes("vehicle") || path.includes("lot");
   } catch {
     return false;
   }
 }
 
 function extractPrestigeMotorsportSourceId(url: string): string | undefined {
-  // TODO: verify actual listing id path/query segment once a real detail URL is seen.
-  const match = url.match(/[?&]id=(\d+)/) || url.match(/-(\d+)\/?$/);
-  return match?.[1];
+  const match = url.match(/[?&](?:car_id|id)=([^&]+)/i) || url.match(/-(\d+)\/?$/);
+  return match?.[1] || match?.[0]?.replace(/.*(?:car_id|id)=/i, "").replace(/[^A-Za-z0-9]+$/, "");
 }
 
 // TODO: verify the real "sold" markers on the detail page. Best-effort text
@@ -313,17 +336,26 @@ async function discoverDetailUrls(config: PrestigeMotorsportCrawlConfig): Promis
   let total = Infinity;
 
   while (urls.length < total && urls.length < config.max * 3) {
-    const page = await fetchSearchResultsPage(formParams, limitStart);
-    if (typeof page.total === "number") total = page.total;
-    if (!page.cars_html) break;
+    try {
+      const page = await fetchSearchResultsPage(formParams, limitStart);
+      if (typeof page.total === "number") total = page.total;
+      if (!page.cars_html) break;
 
-    const listings = extractListingsFromCarsHtml(page.cars_html);
-    if (listings.length === 0) break;
+      const listings = extractListingsFromCarsHtml(page.cars_html);
+      if (listings.length === 0) break;
 
-    urls.push(...listings.map((l) => l.url));
-    limitStart += listings.length;
+      urls.push(...listings.map((l) => l.url));
+      limitStart += listings.length;
 
-    if (listings.length < RESULTS_PAGE_SIZE) break; // last page
+      if (listings.length < RESULTS_PAGE_SIZE) break; // last page
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      if (msg.toLowerCase().includes("cloudflare") || msg.toLowerCase().includes("bot protection")) {
+        console.warn("[prestige-crawl] Search discovery is blocked by Cloudflare bot protection. Falling back to direct URLs only.");
+        return [];
+      }
+      throw error;
+    }
   }
 
   return [...new Set(urls)].filter(isPrestigeMotorsportDetailUrl);
@@ -341,6 +373,10 @@ export async function crawlPrestigeMotorsport(config: PrestigeMotorsportCrawlCon
   let detailUrls = (config.urls && config.urls.length > 0)
     ? config.urls.filter(isPrestigeMotorsportDetailUrl)
     : await discoverDetailUrls(config);
+
+  if (!detailUrls.length && !config.urls?.length) {
+    console.warn("[prestige-crawl] No search-discovered URLs were available because the live search endpoint is blocked by Cloudflare bot protection. Provide direct URLs to continue scraping.");
+  }
 
   detailUrls = [...new Set(detailUrls)].slice(0, config.max * (requireSold ? 3 : 1));
   console.error(`[prestige-crawl] Discovered ${detailUrls.length} candidate auction detail URLs`);

@@ -242,4 +242,27 @@ describe("crawlPrestigeMotorsport", () => {
     expect(result.records).toHaveLength(1);
     expect(result.records[0].url).toBe(validUrl);
   });
+
+  it("accepts the live direct listing URL pattern that uses car_id", async () => {
+    const directUrl = "https://prestigemotorsport.com.au/auction-vehicle-display/?car_id=2l75N7ue7PG9A3m";
+
+    mockFetch
+      .mockResolvedValueOnce(htmlResponse("<html><body>Result: SOLD for $34,500</body></html>"))
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          results: [{ url: directUrl, text: "Details\nSold for $34,500", title: "Alphard" }],
+        }),
+      });
+
+    mockPrompt.mockResolvedValueOnce(JSON.stringify([auctionRecord(directUrl, { sourceId: "2l75N7ue7PG9A3m" })]));
+    mockExportToConvex.mockResolvedValueOnce({ upserted: 1 });
+
+    const { crawlPrestigeMotorsport } = await import("../src/prestigemotorsportCrawler.js");
+    const result = await crawlPrestigeMotorsport({ urls: [directUrl], max: 5 });
+
+    expect(result.records).toHaveLength(1);
+    expect(result.records[0].url).toBe(directUrl);
+    expect(result.records[0].sourceId).toBe("2l75N7ue7PG9A3m");
+  });
 });
