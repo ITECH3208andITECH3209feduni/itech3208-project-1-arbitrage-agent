@@ -1,7 +1,8 @@
 import type { VehicleRecord } from "./types.js";
 import { modelsMatch, normalizeMake } from "./modelFamily.js";
 
-const DEFAULT_IMPORT_RATE = 0.32;
+// No invented import-cost default. Use the landed/driveaway orchestration or pass importCostRate explicitly.
+const DEFAULT_IMPORT_RATE = 0;
 type Basis = "asking" | "sold" | "mixed";
 
 export interface ResaleEstimate {

@@ -74,6 +74,8 @@ export interface VehicleRecord {
   descriptionRaw: string;
   /** URLs of listing images. */
   images: string[];
+  /** Auction-sheet images kept separately from generic listing images. */
+  auctionSheetImages?: string[];
   /** ISO-8601 timestamp of when the record was extracted. */
   extractedAt: string;
   /** Demo/auction metadata used by the arbitrage UI. */
@@ -81,10 +83,13 @@ export interface VehicleRecord {
   auctionEndTime?: string;
   lastBidAt?: string;
   buildDate?: string;
+  /** Translated auction-sheet registration/chassis/inspector fields. */
+  registrationYear?: number | null;
+  chassisNumber?: string;
+  inspectorNotes?: string;
   estimatedProfitAud?: number | null;
   /** Estimated Australian resale price from comparable AU listings. */
   estimatedResaleAud?: number | null;
-  /** P20/P80 range for estimated resale price. */
   estimatedResaleLowAud?: number | null;
   estimatedResaleHighAud?: number | null;
   /** Comparable sample and price-basis metadata. */
@@ -93,31 +98,49 @@ export interface VehicleRecord {
   resaleConfidence?: number | null;
   resaleConfidenceLabel?: "low" | "medium" | "high" | null;
   resaleConfidenceReasons?: string[] | null;
-  /** Purchase and import figures used by the estimator. */
+  /** Purchase, landed and Victorian driveaway figures used by the estimator. */
   purchaseAud?: number | null;
   importCostAud?: number | null;
-  /** Whether a past-auction listing sold, went unsold/passed-in, or is unknown. Auction sources only. */
+  landedCostAud?: number | null;
+  startingCostAud?: number | null;
+  driveawayCostAud?: number | null;
+  exchangeRateUsed?: number | null;
+  costWarnings?: string[] | null;
+  complianceWarnings?: string[] | null;
+  landedCostBreakdown?: Record<string, import("./compliance/types.js").LineItem> | null;
+  complianceBreakdown?: Record<string, import("./compliance/types.js").LineItem> | null;
+  complianceAssessment?: import("./compliance/types.js").ComplianceAssessment | null;
+  /** Optional analyst-entered cost and compliance configuration. */
+  agentFeeAud?: number | null;
+  inlandTransportAud?: number | null;
+  exportPaperworkAud?: number | null;
+  wharfHandlingAud?: number | null;
+  customsBrokerageAud?: number | null;
+  biosecurityAud?: number | null;
+  adrEngineeringAud?: number | null;
+  registrationFee?: number | null;
+  tacFee?: number | null;
+  plateFee?: number | null;
+  ravAssessmentFee?: number | null;
+  japaneseOriginProof?: boolean;
+  modifiedVehicle?: boolean;
+  convertedToRhd?: boolean;
+  isFuelEfficient?: boolean;
+  isGreenPassengerCar?: boolean;
+  /** Whether a past-auction listing sold, went unsold/passed-in, or is unknown. */
   soldStatus?: "sold" | "unsold" | "unknown";
-  /** Raw winning-bid / sold-price text as shown on the listing (e.g. "Sold for $34,500"). Auction sources only. */
   hammerPriceRaw?: string;
-  /** Auction house name (e.g. "USS Tokyo", "TAA Kantou"). Auction sources only. */
   auctionHouse?: string;
-  /** Japanese auction-sheet exterior condition grade (e.g. "4.5", "S", "R"). Auction sources only. */
   exteriorGrade?: string;
-  /** Plain-English description of the exterior grade. */
   exteriorGradeDescription?: string;
-  /** Japanese auction-sheet interior condition grade (A–D). Auction sources only. */
   interiorGrade?: string;
-  /** Plain-English description of the interior grade. */
   interiorGradeDescription?: string;
-  /** Plain-English caution about odometer reliability, derived from the auction sheet's mileage symbol. */
   mileageWarning?: string;
-  /** Plain-English translation of the auction sheet's ownership-history term (e.g. one-owner, ex-rental). */
   ownershipHistory?: string;
-  /** Plain-English translations of auction-sheet sales points/equipment found on the listing. */
+  damageCodes?: string[];
   auctionSalesPoints?: string[];
-}
 
+}
 /** Configuration for a {@link crawl} run. */
 export interface CrawlConfig {
   /** Brand / model search term (e.g. "Toyota Alphard"). */

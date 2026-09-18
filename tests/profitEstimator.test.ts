@@ -59,8 +59,8 @@ describe("profitEstimator", () => {
   it("calculates JPY purchase and exact contract output", () => {
     const target = car({ price: 1_000_000, currency: "JPY" });
     const comparables = [car({ price: 30_000 }), car({ price: 40_000 })];
-    expect(estimateProfitAud(target, comparables, { jpyToAud: 0.01 })).toBe(21_800);
-    expect(applyEstimatedProfitAud(target, comparables, { jpyToAud: 0.01 })).toMatchObject({ purchaseAud: 10_000, importCostAud: 3_200, estimatedResaleAud: 35_000, estimatedProfitAud: 21_800, resaleBasis: "asking" });
+    expect(estimateProfitAud(target, comparables, { jpyToAud: 0.01 })).toBe(25_000);
+    expect(applyEstimatedProfitAud(target, comparables, { jpyToAud: 0.01 })).toMatchObject({ purchaseAud: 10_000, importCostAud: 0, estimatedResaleAud: 35_000, estimatedProfitAud: 25_000, resaleBasis: "asking" });
   });
 
   it("matches model families across trims but not unrelated models", () => {

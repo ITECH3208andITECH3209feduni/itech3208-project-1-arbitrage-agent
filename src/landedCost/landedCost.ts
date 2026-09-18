@@ -47,6 +47,13 @@ export function validateLandedCostInput(input: LandedCostInput): void {
   checkNotNegative(input.purchasePriceJpy, "purchasePriceJpy");
   checkNotNegative(input.purchasePriceAud, "purchasePriceAud");
   checkNotNegative(input.japanSideCostsAud, "japanSideCostsAud");
+  checkNotNegative(input.agentFeeAud, "agentFeeAud");
+  checkNotNegative(input.inlandTransportAud, "inlandTransportAud");
+  checkNotNegative(input.exportPaperworkAud, "exportPaperworkAud");
+  checkNotNegative(input.wharfHandlingAud, "wharfHandlingAud");
+  checkNotNegative(input.customsBrokerageAud, "customsBrokerageAud");
+  checkNotNegative(input.biosecurityAud, "biosecurityAud");
+  checkNotNegative(input.adrEngineeringAud, "adrEngineeringAud");
   checkNotNegative(input.freightAud, "freightAud");
   checkNotNegative(input.insuranceAud, "insuranceAud");
   checkNotNegative(input.repairCostsAud, "repairCostsAud");
@@ -90,6 +97,20 @@ export function calcImportGst(valueOfTaxableImportationAud: number): number {
   return money(valueOfTaxableImportationAud * IMPORT_GST_RATE);
 }
 
+const EXPLICIT_JAPAN_COST_FIELDS = [
+  "agentFeeAud", "inlandTransportAud", "exportPaperworkAud", "wharfHandlingAud",
+  "customsBrokerageAud", "biosecurityAud", "adrEngineeringAud",
+] as const;
+
+function explicitJapanCosts(input: LandedCostInput): { total: number; supplied: boolean } {
+  const supplied = EXPLICIT_JAPAN_COST_FIELDS.some((field) => input[field] != null);
+  if (!supplied) return { total: input.japanSideCostsAud ?? 0, supplied: false };
+  return {
+    total: money(EXPLICIT_JAPAN_COST_FIELDS.reduce((sum, field) => sum + (input[field] ?? 0), 0)),
+    supplied: true,
+  };
+}
+
 function buildLineItem(amount: number, confidence: LineItem["confidence"], source: string): LineItem {
   return { amount: money(amount), confidence, source };
 }
@@ -100,11 +121,17 @@ export function calculateLandedCost(input: LandedCostInput): LandedCostResult {
   const warnings: string[] = [];
 
   const purchaseAud = convertPurchasePriceToAud(input);
-  const japanSideCostsAud = input.japanSideCostsAud ?? 0;
+  const japanCosts = explicitJapanCosts(input);
+  const japanSideCostsAud = japanCosts.total;
   const fobValueAud = money(purchaseAud + japanSideCostsAud);
 
-  if (input.japanSideCostsAud == null) {
+  if (!japanCosts.supplied && input.japanSideCostsAud == null) {
     warnings.push("Japan-side costs (agent fee, inland transport) not supplied; FOB value may be too low.");
+  }
+  if (japanCosts.supplied) {
+    for (const field of EXPLICIT_JAPAN_COST_FIELDS) {
+      if (input[field] == null) warnings.push(`${field} not supplied; explicit Japan-side cost total excludes it.`);
+    }
   }
 
   const freightAud = input.freightAud ?? DEFAULT_FREIGHT_AUD;
@@ -137,15 +164,23 @@ export function calculateLandedCost(input: LandedCostInput): LandedCostResult {
   }
 
   const breakdown: Record<string, LineItem> = {
+    exchangeRate: buildLineItem(0, input.jpyToAudRate == null ? "manual_input_required" : "official_but_variable", input.jpyToAudRate == null ? "No JPY exchange rate supplied" : `JPY to AUD rate ${input.jpyToAudRate}`),
     purchasePrice: buildLineItem(
       purchaseAud,
       input.purchasePriceAud != null ? "manual_input_required" : "official_but_variable",
       input.purchasePriceAud != null ? "Price supplied in AUD" : "JPY price x exchange rate"
     ),
+    agentFee: buildLineItem(input.agentFeeAud ?? 0, input.agentFeeAud == null ? "manual_input_required" : "estimate", "Agent fee input"),
+    inlandTransport: buildLineItem(input.inlandTransportAud ?? 0, input.inlandTransportAud == null ? "manual_input_required" : "estimate", "Inland transport input"),
+    exportPaperwork: buildLineItem(input.exportPaperworkAud ?? 0, input.exportPaperworkAud == null ? "manual_input_required" : "estimate", "Export paperwork input"),
+    wharfHandling: buildLineItem(input.wharfHandlingAud ?? 0, input.wharfHandlingAud == null ? "manual_input_required" : "estimate", "Wharf handling input"),
+    customsBrokerage: buildLineItem(input.customsBrokerageAud ?? 0, input.customsBrokerageAud == null ? "manual_input_required" : "estimate", "Customs brokerage input"),
+    biosecurity: buildLineItem(input.biosecurityAud ?? 0, input.biosecurityAud == null ? "manual_input_required" : "estimate", "Biosecurity input"),
+    adrEngineering: buildLineItem(input.adrEngineeringAud ?? 0, input.adrEngineeringAud == null ? "manual_input_required" : "estimate", "ADR engineering input"),
     japanSideCosts: buildLineItem(
-      japanSideCostsAud,
-      input.japanSideCostsAud == null ? "manual_input_required" : "estimate",
-      "Agent or analyst input"
+      japanCosts.supplied ? 0 : japanSideCostsAud,
+      !japanCosts.supplied && input.japanSideCostsAud == null ? "manual_input_required" : "estimate",
+      japanCosts.supplied ? "Legacy aggregate ignored because explicit categories were supplied" : "Agent or analyst input"
     ),
     freight: buildLineItem(
       freightAud,
@@ -178,7 +213,9 @@ export function calculateLandedCost(input: LandedCostInput): LandedCostResult {
     breakdown,
     fobValueAud,
     customsDutyRate,
+    exchangeRateUsed: input.jpyToAudRate ?? null,
     valueOfTaxableImportationAud,
+    startingCostAud: totalLandedCostAud,
     totalLandedCostAud,
     repairCostsAud,
   };

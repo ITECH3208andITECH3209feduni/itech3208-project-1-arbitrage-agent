@@ -15,6 +15,10 @@ export { prompt, promptStreaming } from "./llm.js";
 export { discover, fetchBatch } from "./exa.js";
 export { exportToConvex } from "./convexExporter.js";
 export { estimateProfitAud, estimateResaleAud, applyEstimatedProfitAud } from "./profitEstimator.js";
+export { calculateLandedCost, calculateDriveawayCost, validateLandedCostInput, convertPurchasePriceToAud, getCustomsDutyRate } from "./landedCost/landedCost.js";
+export type { LandedCostInput, LandedCostResult, DriveawayInput, DriveawayResult } from "./landedCost/types.js";
+export { calculateComplianceModule, validateComplianceInput, assessRequirements, estimateAuctionSheetRisk } from "./compliance/compliance.js";
+export type { ComplianceInput, AuctionSheetInput, ComplianceResult, ComplianceAssessment, LineItem, Confidence } from "./compliance/types.js";
 export type { ProfitEstimatorOptions, ResaleEstimate } from "./profitEstimator.js";
 export { BRAND_PAGES, GOO_NET_BRANDS, GOO_NET_BRAND_PAGES, AUTOTRADER_BRAND_SLUGS, getBrandPages, getGooNetBrandPage, getAutotraderBrandPage, getAutotraderPageFromQuery } from "./brands.js";
 export {
@@ -31,4 +35,4 @@ export {
 export type { RawAuctionSheet, TranslatedAuctionSheet, MileageFlag } from "./auctionSheet.js";
 export type { CrawlConfig, CrawlResult, VehicleRecord } from "./types.js";
 export type { AutotraderCrawlConfig } from "./autotraderCrawler.js";
-export type { PrestigeMotorsportCrawlConfig } from "./prestigemotorsportCrawler.js";
+export type { PrestigeMotorsportCrawlConfig, PrestigeAuctionDate } from "./prestigemotorsportCrawler.js";

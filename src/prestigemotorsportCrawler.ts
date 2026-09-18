@@ -40,6 +40,8 @@ const MAKE_IDS: Record<string, number> = {
 /** auction_name[] value confirmed from the live form: option value="2" => "Non-USS only". */
 const AUCTION_NAME_NON_USS = "2";
 
+export type PrestigeAuctionDate = "Today" | "Future" | "Past";
+
 export interface PrestigeMotorsportCrawlConfig {
   /** Make to filter auctions by (e.g. "Toyota"). Must match a key in MAKE_IDS (case-insensitive). */
   make?: string;
@@ -49,17 +51,19 @@ export interface PrestigeMotorsportCrawlConfig {
   yearFrom?: number;
   /** Optional year_to filter. */
   yearTo?: number;
+  /** Auction date tab used by Prestige search. Defaults to Past for compatibility. */
+  auctionDate?: PrestigeAuctionDate;
   /** Direct listing detail URLs to fetch. Overrides search discovery when set. */
   urls?: string[];
   /** Maximum number of listings to process (default: 10). */
   max: number;
-  /** Only keep listings confirmed SOLD. Past auctions can include unsold/passed-in lots. Default: true. */
+  /** Only keep listings confirmed SOLD. Defaults true for Past and false otherwise. */
   requireSold?: boolean;
   /** Upsert extracted records into Convex. Defaults to true for CLI usage. */
   persist?: boolean;
 }
 
-const SYSTEM_PREFIX = `You are a data extraction assistant. Extract structured vehicle records from Prestige Motorsport past Japanese-auction listing pages.
+const SYSTEM_PREFIX = `You are a data extraction assistant. Extract structured vehicle records from Prestige Motorsport Japanese-auction listing pages.
 Return ONLY a valid JSON array. No markdown fences, no explanation.
 
 Each record must have these fields:
@@ -67,11 +71,10 @@ Each record must have these fields:
 - Text fields: title, titleRaw, make, model, color, colorRaw, transmission, transmissionRaw, driveType, driveTypeRaw, fuelType, fuelTypeRaw, bodyType, bodyTypeRaw, description, descriptionRaw, dealer, dealerRaw, location, locationRaw, engineSize, priceRaw, mileageRaw
 - Numeric fields: price, mileage, year, doors, seats
 - Auction-specific: soldStatus ("sold", "unsold", or "unknown"), hammerPriceRaw (the winning bid / sold price text as shown, e.g. "Sold for $34,500"), auctionHouse (e.g. "USS Tokyo", "TAA Kantou")
-- Japanese auction-sheet fields, if a sheet is shown or referenced (leave "" if absent): exteriorGradeRaw (評価点 exterior grade, e.g. "4.5", "S", "R", "RA"), interiorGradeRaw (A–D interior grade), ownershipHistoryRaw (raw 車歴 term, e.g. "自家用", "ワンオーナー", "リース", "社用", "レンタ", "教習車"), registrationRaw (raw Japanese-era code, e.g. "R5", "H30"), salesPointsRaw (any raw セールスポイント/equipment terms found on the sheet, e.g. "禁煙車", "本革", "サンルーフ"), inspectorNotesRaw (raw inspector remarks)
-
+- Japanese auction-sheet fields, if a sheet is shown or referenced (leave "" if absent): exteriorGradeRaw (評価点 exterior grade), interiorGradeRaw (A–D interior grade), ownershipHistoryRaw, registrationRaw, salesPointsRaw, chassisNumberRaw, inspectorNotesRaw, auctionSheetImages (sheet-only image URLs)
+- Preserve generic listing images in images and auction-sheet scans/photos separately in auctionSheetImages.
 Set url to the exact <!-- PAGE: ... --> URL for each page. Prefer car-specific detail page fields from the Details / Features / Specs sections over result-card text.
 - Other: url, images, extractedAt
-
 Do not return estimatedProfitAud. It is calculated after extraction by application code.
 Use English text for both translated and raw fields.
 If a listing does not clearly show a SOLD result, set soldStatus="unsold" or "unknown" rather than guessing "sold".
@@ -84,7 +87,7 @@ function buildExtractionUser(markdowns: string[], target = ""): string {
 ${markdowns.join("\n\n---\n\n")}
 
 ## Instruction
-Extract all matching Prestige Motorsport past-auction vehicle records from the markdown above. Return ONLY a JSON array.`;
+Extract all matching Prestige Motorsport Japanese-auction vehicle records from the markdown above. Return ONLY a JSON array.`;
 }
 
 function parseAudPrice(raw: string | undefined | null): number | null {
@@ -111,7 +114,7 @@ interface ModelOption {
 }
 
 /** Calls action=search_model_car to resolve a model name to its model_id (ext_id) for a given make. */
-async function resolveModelId(markaId: number, model: string, auctionDate = "Past"): Promise<string | undefined> {
+async function resolveModelId(markaId: number, model: string, auctionDate: PrestigeAuctionDate = "Past"): Promise<string | undefined> {
   const body = new URLSearchParams({
     action: "search_model_car",
     marka_id: String(markaId),
@@ -220,8 +223,6 @@ function asOptionalString(value: unknown): string | undefined {
 }
 
 function prepareAuctionRecord(record: VehicleRecord, pageUrl: string): VehicleRecord {
-  // Auction-sheet fields aren't part of the base VehicleRecord type on the LLM's raw output shape,
-  // so read them off the record defensively before it's normalized/typed below.
   const scratch = record as unknown as Record<string, unknown>;
   const sheet = translateAuctionSheet({
     exteriorGradeRaw: asOptionalString(scratch.exteriorGradeRaw),
@@ -230,9 +231,10 @@ function prepareAuctionRecord(record: VehicleRecord, pageUrl: string): VehicleRe
     ownershipHistoryRaw: asOptionalString(scratch.ownershipHistoryRaw),
     registrationRaw: asOptionalString(scratch.registrationRaw),
     salesPointsRaw: [asOptionalString(scratch.salesPointsRaw), record.descriptionRaw].filter(Boolean).join(" "),
+    chassisNumberRaw: asOptionalString(scratch.chassisNumberRaw),
     inspectorNotesRaw: asOptionalString(scratch.inspectorNotesRaw),
+    auctionSheetImages: Array.isArray(scratch.auctionSheetImages) ? scratch.auctionSheetImages.filter((image): image is string => typeof image === "string") : [],
   });
-
   return {
     ...record,
     url: pageUrl,
@@ -243,6 +245,9 @@ function prepareAuctionRecord(record: VehicleRecord, pageUrl: string): VehicleRe
     sourceId: record.sourceId || extractPrestigeMotorsportSourceId(pageUrl),
     price: record.price ?? parseAudPrice(record.hammerPriceRaw || record.priceRaw),
     soldStatus: sanitizeSoldStatus(record.soldStatus),
+    registrationYear: sheet.registrationYear,
+    chassisNumber: sheet.chassisNumber,
+    inspectorNotes: sheet.inspectorNotes,
     exteriorGrade: sheet.exteriorGrade,
     exteriorGradeDescription: sheet.exteriorGradeDescription,
     interiorGrade: sheet.interiorGrade,
@@ -250,6 +255,7 @@ function prepareAuctionRecord(record: VehicleRecord, pageUrl: string): VehicleRe
     mileageWarning: sheet.mileageWarning,
     ownershipHistory: sheet.ownershipHistory,
     auctionSalesPoints: sheet.salesPoints.map((p) => p.en),
+    auctionSheetImages: sheet.auctionSheetImages,
   };
 }
 
@@ -290,14 +296,15 @@ async function filterToSoldListings(urls: string[]): Promise<string[]> {
 async function discoverDetailUrls(config: PrestigeMotorsportCrawlConfig): Promise<string[]> {
   if (!config.make) throw new Error("make is required for search discovery");
   const markaId = resolveMakeId(config.make);
-  const modelId = config.model ? await resolveModelId(markaId, config.model) : "";
+  const auctionDate = config.auctionDate ?? "Past";
+  const modelId = config.model ? await resolveModelId(markaId, config.model, auctionDate) : "";
   if (config.model && !modelId) {
     throw new Error(`Could not resolve model "${config.model}" for make "${config.make}"`);
   }
 
   const formParams = new URLSearchParams();
-  formParams.set("auction-date", "Past");
-  formParams.set("auction_date_select", "Past");
+  formParams.set("auction-date", auctionDate);
+  formParams.set("auction_date_select", auctionDate);
   formParams.set("marka_id", String(markaId));
   formParams.set("model_id", modelId ?? "");
   formParams.set("year_from", config.yearFrom ? String(config.yearFrom) : "");
@@ -336,7 +343,8 @@ export async function crawlPrestigeMotorsport(config: PrestigeMotorsportCrawlCon
   }
 
   const model = process.env.OPENROUTER_MODEL || "deepseek/deepseek-v4-flash";
-  const requireSold = config.requireSold ?? true;
+  const auctionDate = config.auctionDate ?? "Past";
+  const requireSold = config.requireSold ?? auctionDate === "Past";
 
   let detailUrls = (config.urls && config.urls.length > 0)
     ? config.urls.filter(isPrestigeMotorsportDetailUrl)
