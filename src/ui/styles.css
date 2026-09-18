@@ -286,3 +286,5 @@ html,body,#root{height:100%}body{font-family:-apple-system,BlinkMacSystemFont,'S
   .modal-col { width: 100%; }
 }
 .refresh-button{margin-top:10px;padding:6px 10px;border:1px solid var(--border);border-radius:5px;background:#fff;color:var(--navy);font-size:12px;font-weight:700;cursor:pointer}.refresh-button:disabled{opacity:.6;cursor:wait}.refresh-announcement{position:fixed;top:62px;right:16px;z-index:20;max-width:420px;color:var(--profit);font-size:12px}.refresh-announcement.error{color:var(--red)}.stale-badge{display:inline-block;margin:6px 0;padding:3px 7px;border-radius:10px;background:#fef3c7;color:#92400e;font-size:11px;font-weight:700}.estimate-reasons{margin-top:10px;font-size:12px;color:var(--muted)}.estimate-reasons ul{padding-left:18px;margin-top:4px}
+.auction-sheet{margin-top:18px;padding-top:14px;border-top:1px solid var(--border-light)}.auction-sheet .modal-section-title{margin-bottom:8px}.sheet-points{margin-top:10px;font-size:12px;color:var(--muted);line-height:1.4}.sheet-points strong{color:var(--text)}.sheet-points ul{padding-left:18px;margin-top:4px}
+.split-view{grid-template-columns:repeat(3,minmax(0,1fr))}

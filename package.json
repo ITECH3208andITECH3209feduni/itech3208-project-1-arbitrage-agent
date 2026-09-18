@@ -24,6 +24,7 @@
     "crawl": "tsx src/goonet-crawler-example.ts",
     "crawl:goonet": "tsx src/goonet-crawler-example.ts",
     "crawl:autotrader": "tsx src/autotrader-crawler-example.ts",
+    "crawl:prestige": "tsx src/prestigemotorsport-crawler-example.ts",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "dev": "vite",

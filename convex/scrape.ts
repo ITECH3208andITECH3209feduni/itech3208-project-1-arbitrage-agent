@@ -5,6 +5,7 @@ import { makeFunctionReference } from "convex/server";
 import { v } from "convex/values";
 import { crawlGoonet } from "../src/goonetCrawler";
 import { crawlAutotrader } from "../src/autotraderCrawler";
+import { crawlPrestigeMotorsport } from "../src/prestigemotorsportCrawler.js";
 import { refreshListing } from "../src/refreshListing.js";
 import { canonicalizeUrl } from "../src/utils.js";
 import type { VehicleRecord } from "../src/types";
@@ -125,7 +126,7 @@ export const recomputeVehicle = action({
 
 export const vehicles = action({
   args: {
-    source: v.union(v.literal("goonet"), v.literal("autotrader")),
+    source: v.union(v.literal("goonet"), v.literal("autotrader"), v.literal("prestigemotorsport")),
     brand: v.optional(v.string()),
     model: v.optional(v.string()),
     brandUrl: v.optional(v.string()),
@@ -134,7 +135,7 @@ export const vehicles = action({
     year: v.optional(v.number()),
     max: v.number(),
   },
-  handler: async (ctx, args) => {
+    handler: async (ctx, args) => {
     const missing = ["EXA_API_KEY", "OPENROUTER_API_KEY", "CONVEX_INGEST_SECRET"].filter(
       (name) => !process.env[name],
     );
@@ -152,31 +153,34 @@ export const vehicles = action({
       : undefined;
     const model = args.model?.trim() || undefined;
     const year = normalizeYear(args.year);
-    const result = args.source === "autotrader"
-      ? await crawlAutotrader({
-          query: args.query,
-          brand,
-          model,
-          urls: args.urls,
-          year,
-          max,
-          persist: false,
-        })
-      : await crawlGoonet({
-          brand,
-          model,
-          brandUrl: args.brandUrl,
-          year,
-          max,
-          persist: false,
-        });
+
+    const result =
+      args.source === "autotrader"
+        ? await crawlAutotrader({ query: args.query, brand, model, urls: args.urls, year, max, persist: false })
+        : args.source === "prestigemotorsport"
+          ? await crawlPrestigeMotorsport({
+              make: brand,
+              model,
+              yearFrom: year,
+              yearTo: year,
+              urls: args.urls,
+              max,
+              persist: false,
+            })
+          : await crawlGoonet({ brand, model, brandUrl: args.brandUrl, year, max, persist: false });
+
+    const defaultsBySource = {
+      goonet: { market: "JP" as const, currency: "JPY" as const, source: "goo-net", sourceType: "dealer" as const },
+      autotrader: { market: "AU" as const, currency: "AUD" as const, source: "autotrader", sourceType: "dealer" as const },
+      prestigemotorsport: { market: "AU" as const, currency: "AUD" as const, source: "prestigemotorsport", sourceType: "auction" as const },
+    }[args.source];
 
     const records = result.records.map((record) => ({
       ...record,
-      market: record.market ?? (args.source === "goonet" ? "JP" : "AU"),
-      currency: record.currency ?? (args.source === "goonet" ? "JPY" : "AUD"),
-      source: record.source ?? (args.source === "goonet" ? "goo-net" : "autotrader"),
-      sourceType: record.sourceType ?? "dealer",
+      market: record.market ?? defaultsBySource.market,
+      currency: record.currency ?? defaultsBySource.currency,
+      source: record.source ?? defaultsBySource.source,
+      sourceType: record.sourceType ?? defaultsBySource.sourceType,
       make: record.make?.trim() || brand,
       model: record.model?.trim() || model,
     }));
