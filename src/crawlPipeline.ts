@@ -3,7 +3,7 @@ import { prompt } from "./llm.js";
 import { normalizeRecord } from "./normalizer.js";
 import { exportToConvex } from "./convexExporter.js";
 import { canonicalizeUrl } from "./utils.js";
-import { validateVehicleRecord } from "./vehicleValidation.js";
+import { VehicleRecordSchema } from "./vehicleValidation.js";
 import type { CrawlResult, VehicleRecord } from "./types.js";
 
 export interface CrawlTarget {
@@ -24,6 +24,8 @@ export interface CrawlPipelineConfig {
   persist?: boolean;
   target?: CrawlTarget;
   prepareRecord?: (record: VehicleRecord, pageUrl: string) => VehicleRecord | null;
+  /** Browser-authenticated fetch override for sites Exa cannot access. */
+  fetchPages?: (urls: string[]) => Promise<{ results: Record<string, string>; errors: Record<string, string> }>;
 }
 
 export function logUrls(prefix: string, urls: string[]): void {
@@ -66,9 +68,16 @@ function matchesTarget(record: VehicleRecord, target?: CrawlTarget): boolean {
 function parseExtractionResponse(label: string, raw: string): VehicleRecord[] {
   try {
     const match = raw.match(/\[[\s\S]*\]/);
-    return match ? JSON.parse(match[0]) : [];
+    if (!match) {
+      console.error(`[${label}] AI returned no JSON array (response length ${raw.length}; preview: ${raw.slice(0, 250)})`);
+      return [];
+    }
+    const value: unknown = JSON.parse(match[0]);
+    if (!Array.isArray(value)) return [];
+    if (!value.length) console.error(`[${label}] AI returned [] (no vehicles extracted)`);
+    return value as VehicleRecord[];
   } catch (err: unknown) {
-    console.error(`[${label}] Failed to parse extraction result: ${err}`);
+    console.error(`[${label}] Failed to parse extraction result: ${err}; response preview: ${raw.slice(0, 250)}`);
     return [];
   }
 }
@@ -134,10 +143,13 @@ export async function runCrawlPipeline(config: CrawlPipelineConfig): Promise<Cra
   console.error(`[${label}] Scraping ${urls.length} URLs:`);
   logUrls(`[${label}]   scraping`, urls);
   console.error(`[${label}] Fetching ${urls.length} pages...`);
-  const { results: pageResults, errors: fetchErrors } = await fetchBatch(urls, process.env.EXA_API_KEY!, config.maxCharacters);
+  const { results: pageResults, errors: fetchErrors } = config.fetchPages
+    ? await config.fetchPages(urls)
+    : await fetchBatch(urls, process.env.EXA_API_KEY!, config.maxCharacters);
   console.error(`[${label}] Fetched ${Object.keys(pageResults).length} pages, ${Object.keys(fetchErrors).length} errors`);
 
   const records = await extractInParallel({ ...config, results: pageResults });
+  console.error(`[${label}] AI produced ${records.length} candidate records`);
   const now = new Date().toISOString();
   const normalized: VehicleRecord[] = [];
   const failedUrls = new Set<string>();
@@ -145,19 +157,23 @@ export async function runCrawlPipeline(config: CrawlPipelineConfig): Promise<Cra
 
   for (const record of records) {
     if (!record || typeof record !== "object" || (!record.title && !record.priceRaw && !record.mileageRaw)) {
+      console.error(`[${label}] Rejected empty/incomplete record`);
       totalFailed++;
       if (record?.url) failedUrls.add(canonicalizeUrl(record.url));
       continue;
     }
     record.extractedAt = now;
     const normalizedRecord = normalizeRecord(record);
-    const validated = validateVehicleRecord(normalizedRecord);
-    if (!validated) {
+    const validation = VehicleRecordSchema.safeParse(normalizedRecord);
+    if (!validation.success) {
+      console.error(`[${label}] Schema rejected ${record.url}: ${JSON.stringify(validation.error.issues.map(i => ({ field: i.path.join("."), reason: i.message })).slice(0, 15))}`);
       totalFailed++;
       if (record.url) failedUrls.add(canonicalizeUrl(record.url));
       continue;
     }
+    const validated = validation.data;
     if (!matchesTarget(validated, config.target)) {
+      console.error(`[${label}] Target mismatch: expected ${JSON.stringify(config.target)}, received ${JSON.stringify({ make: validated.make, model: validated.model, year: validated.year, title: validated.title })}`);
       totalFailed++;
       if (record.url) failedUrls.add(canonicalizeUrl(record.url));
       continue;

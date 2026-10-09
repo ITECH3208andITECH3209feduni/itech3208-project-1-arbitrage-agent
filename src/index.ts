@@ -11,6 +11,7 @@ import "dotenv/config";
 export { crawlGoonet, crawl } from "./goonetCrawler.js";
 export { crawlAutotrader } from "./autotraderCrawler.js";
 export { crawlPrestigeMotorsport } from "./prestigemotorsportCrawler.js";
+export { crawlJapanCarDirect } from "./japanCarDirectCrawler.js";
 export { prompt, promptStreaming } from "./llm.js";
 export { discover, fetchBatch } from "./exa.js";
 export { exportToConvex } from "./convexExporter.js";
@@ -36,3 +37,4 @@ export type { RawAuctionSheet, TranslatedAuctionSheet, MileageFlag } from "./auc
 export type { CrawlConfig, CrawlResult, VehicleRecord } from "./types.js";
 export type { AutotraderCrawlConfig } from "./autotraderCrawler.js";
 export type { PrestigeMotorsportCrawlConfig, PrestigeAuctionDate } from "./prestigemotorsportCrawler.js";
+export type { JapanCarDirectConfig } from "./japanCarDirectCrawler.js";

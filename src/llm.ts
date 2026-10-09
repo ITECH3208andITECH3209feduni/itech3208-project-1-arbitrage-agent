@@ -3,9 +3,18 @@ import OpenAI from "openai";
 const OPENROUTER_BASE = "https://openrouter.ai/api/v1";
 
 function createClient(): OpenAI {
-  const apiKey = process.env.OPENROUTER_API_KEY;
-  if (!apiKey) throw new Error("OPENROUTER_API_KEY is required");
-  return new OpenAI({ apiKey, baseURL: OPENROUTER_BASE });
+  const apiKey = process.env.OPENROUTER_API_KEY?.trim();
+
+  if (!apiKey) {
+    throw new Error(
+      "OPENROUTER_API_KEY is missing. Check your .env file."
+    );
+  }
+
+  return new OpenAI({
+    apiKey,
+    baseURL: OPENROUTER_BASE,
+  });
 }
 
 let _client: OpenAI | undefined;

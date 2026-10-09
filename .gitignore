@@ -6,3 +6,5 @@ data/
 .agents/
 package-lock.json
 .env.local
+.jcd-browser-profile/
+output/

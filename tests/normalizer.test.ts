@@ -127,6 +127,15 @@ describe("normalizeRecord", () => {
     expect(result.price).toBe(3_500_000);
   });
 
+  it("does not infer a JCD purchase price from raw auction price text", () => {
+    const result = normalizeRecord(makeRecord({
+      source: "japancardirect",
+      price: null,
+      priceRaw: "350万円",
+    }));
+    expect(result.price).toBeNull();
+  });
+
   it("parses mileage from mileageRaw when mileage is null", () => {
     const result = normalizeRecord(makeRecord());
     expect(result.mileage).toBe(35_000);

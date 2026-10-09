@@ -29,6 +29,14 @@ Optional:
 
 ```bash
 OPENROUTER_MODEL=deepseek/deepseek-v4-flash   # default model
+JCD_USERNAME=your-jcd-username                # optional; browser login can be completed manually
+JCD_PASSWORD=your-jcd-password                # optional; browser login can be completed manually
+```
+
+Japan Car Direct uses Playwright and a persistent local browser profile. Install the Chromium browser once:
+
+```bash
+pnpm exec playwright install chromium
 ```
 
 ## API Usage
@@ -86,7 +94,10 @@ pnpm test
 pnpm build
 pnpm crawl:goonet -- --brand Toyota --max 20
 pnpm crawl:autotrader -- --brand toyota --model alphard --max 20
+pnpm crawl:jcd -- --make toyota --model alphard --max 10
 ```
+
+The Japan Car Direct command opens a browser for sign-in and auction search. For direct detail pages, pass one or more `--url <url>` options instead of identifying result links with `--detail-path-pattern <regex>`.
 
 ## License
 
