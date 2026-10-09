@@ -77,7 +77,7 @@ function parseExtractionResponse(label: string, raw: string): VehicleRecord[] {
     if (!value.length) console.error(`[${label}] AI returned [] (no vehicles extracted)`);
     return value as VehicleRecord[];
   } catch (err: unknown) {
-    console.error(`[${label}] Failed to parse extraction result: ${err}; response preview: ${raw.slice(0, 250)}`);
+    console.error(`[${label}] Failed to parse extraction result: ${err}; response preview: ${String(raw ?? "").slice(0, 250)}`);
     return [];
   }
 }

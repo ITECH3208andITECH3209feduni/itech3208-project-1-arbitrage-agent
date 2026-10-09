@@ -31,6 +31,37 @@ function safeAuctionUrl(raw: string): string {
   return url.href;
 }
 
+interface AuctionGalleryLink {
+  id: string;
+  href: string;
+}
+
+export function classifyAuctionImages(links: AuctionGalleryLink[]): {
+  images: string[];
+  auctionSheetImages: string[];
+} {
+  const gallery = links.flatMap(({ id, href }) => {
+    const match = /^thumb(\d+)$/.exec(id);
+    if (!match) return [];
+    try {
+      const imageUrl = new URL(href, START_URL);
+      if (imageUrl.protocol !== "https:" ||
+        !/^(?:\d+\.)?ajes\.com$/i.test(imageUrl.hostname) ||
+        !imageUrl.pathname.startsWith("/imgs/")) return [];
+      return [{ position: Number(match[1]), url: imageUrl.href }];
+    } catch { return []; }
+  }).sort((a, b) => a.position - b.position);
+  const unique = (items: string[]) => [...new Set(items)];
+  let images = unique(gallery.filter((entry) => entry.position > 0).map((entry) => entry.url));
+  let auctionSheetImages = unique(gallery.filter((entry) => entry.position === 0).map((entry) => entry.url));
+
+  if (!auctionSheetImages.length && images.length > 1) {
+    auctionSheetImages = [images[images.length - 1]!];
+    images = images.slice(0, -1);
+  }
+  return { images, auctionSheetImages };
+}
+
 async function pause(message: string): Promise<void> {
   const rl = createInterface({ input, output });
   try { await rl.question(`${message}\nPress Enter to continue... `); }
@@ -240,32 +271,13 @@ export async function crawlJapanCarDirect(config: JapanCarDirectConfig): Promise
             // JCD exposes full-size images as links, not necessarily lazy images.
             // The auction sheet is the dedicated #thumb0 link (located separately
             // from the vehicle gallery); #thumb1, #thumb2, ... are vehicle photos.
-            const gallery = await tab.locator('a[id^="thumb"][href]').evaluateAll((anchors) =>
-              anchors.flatMap((anchor) => {
-                const id = (anchor as HTMLAnchorElement).id;
-                const match = /^thumb(\d+)$/.exec(id);
-                if (!match) return [];
-                const raw = (anchor as HTMLAnchorElement).href;
-                try {
-                  const imageUrl = new URL(raw, document.baseURI);
-                  if (imageUrl.protocol !== "https:" ||
-                    !/^(?:\d+\.)?ajes\.com$/i.test(imageUrl.hostname) ||
-                    !imageUrl.pathname.startsWith("/imgs/")) return [];
-                  return [{ position: Number(match[1]), url: imageUrl.href }];
-                } catch { return []; }
-              }),
+            const galleryLinks = await tab.locator('a[id^="thumb"][href]').evaluateAll((anchors) =>
+              anchors.map((anchor) => ({
+                id: (anchor as HTMLAnchorElement).id,
+                href: (anchor as HTMLAnchorElement).href,
+              })),
             );
-            gallery.sort((a, b) => a.position - b.position);
-            const unique = (items: string[]) => [...new Set(items)];
-            let images = unique(gallery.filter((entry) => entry.position > 0).map((entry) => entry.url));
-            let auctionSheetImages = unique(gallery.filter((entry) => entry.position === 0).map((entry) => entry.url));
-
-            // On alternate layouts without thumb0, use the user's documented
-            // gallery convention: the final image is the auction sheet.
-            if (!auctionSheetImages.length && images.length > 1) {
-              auctionSheetImages = [images[images.length - 1]];
-              images = images.slice(0, -1);
-            }
+            const { images, auctionSheetImages } = classifyAuctionImages(galleryLinks);
             console.error(`[jcd-crawl] ${new URL(url).pathname}: ${images.length} vehicle photos, ${auctionSheetImages.length} auction sheets`);
             listingImagesByUrl.set(url, { images, auctionSheetImages });
             if (!text.trim()) throw new Error("Empty page; content may require additional loading");
