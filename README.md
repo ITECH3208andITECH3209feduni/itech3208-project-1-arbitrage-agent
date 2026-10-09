@@ -29,15 +29,18 @@ Optional:
 
 ```bash
 OPENROUTER_MODEL=deepseek/deepseek-v4-flash   # default model
-JCD_USERNAME=your-jcd-username                # optional; browser login can be completed manually
-JCD_PASSWORD=your-jcd-password                # optional; browser login can be completed manually
+JCD_USERNAME=your-jcd-username                # optional; pre-fills the visible browser login
+JCD_PASSWORD=your-jcd-password                # optional; pre-fills the visible browser login
+JCD_PROFILE_DIR=.jcd-browser-profile           # optional; persistent browser profile location
 ```
 
-Japan Car Direct uses Playwright and a persistent local browser profile. Install the Chromium browser once:
+Japan Car Direct uses the Playwright dependency and a visible Chromium browser. After `pnpm install`, install its browser once per machine:
 
 ```bash
 pnpm exec playwright install chromium
 ```
+
+The crawler reuses its persistent browser profile between runs. Keep it private because it can contain your JCD sign-in session. Credentials only pre-fill the login form; complete sign-in, CAPTCHA, or other verification in the browser when prompted.
 
 ## API Usage
 
@@ -97,7 +100,19 @@ pnpm crawl:autotrader -- --brand toyota --model alphard --max 20
 pnpm crawl:jcd -- --make toyota --model alphard --max 10
 ```
 
-The Japan Car Direct command opens a browser for sign-in and auction search. For direct detail pages, pass one or more `--url <url>` options instead of identifying result links with `--detail-path-pattern <regex>`.
+Japan Car Direct opens the browser, applies make/model filters when possible, and lets you finish sign-in or search manually if needed. You can pass a year filter as well:
+
+```bash
+pnpm crawl:jcd -- --make Toyota --model Supra --year 2020 --max 5
+```
+
+To crawl known lot pages directly, repeat `--url` for each detail URL:
+
+```bash
+pnpm crawl:jcd -- --url https://auc.japancardirect.com/aj-example.htm --max 1 --no-persist
+```
+
+The JCD command always writes records to `output/japancardirect-records.json`. `--no-persist` skips the Convex upsert but still writes this JSON file. The default accepted lot URL format is `/aj-<id>.htm`; use `--detail-path-pattern <regex>` only if the site changes that format.
 
 ## License
 
