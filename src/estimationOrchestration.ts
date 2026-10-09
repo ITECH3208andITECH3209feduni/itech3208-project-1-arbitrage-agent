@@ -35,6 +35,10 @@ function estimateVehicleCosts(record: VehicleRecord, jpyToAud: number): VehicleR
     customsBrokerageAud: record.customsBrokerageAud,
     biosecurityAud: record.biosecurityAud,
     adrEngineeringAud: record.adrEngineeringAud,
+    freightAud: record.freightAud,
+    insuranceAud: record.insuranceAud,
+    insuranceRate: record.insuranceRate,
+    overrideCustomsDutyRate: record.overrideCustomsDutyRate,
     compliance: {
       ageYears: currentAge(record.year),
       is4wd: /4wd|awd|four[- ]?wheel/i.test(`${record.driveType} ${record.driveTypeRaw}`),

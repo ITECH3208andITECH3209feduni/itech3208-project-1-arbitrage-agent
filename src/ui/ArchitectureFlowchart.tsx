@@ -114,7 +114,7 @@ export function ArchitectureFlowchart() {
     <div className="arch-page">
       <header className="arch-header">
         <div>
-          <h1>goo-net-crawler architecture</h1>
+          <h1>Arbitrage Agent architecture</h1>
           <div className="arch-sub">Interactive React flowchart · sharp system map · live filters</div>
         </div>
         <div className="arch-toolbar">

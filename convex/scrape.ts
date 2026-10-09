@@ -151,6 +151,7 @@ export const vehicles = action({
     costOverrides: v.optional(v.object({
       agentFeeAud: v.optional(v.number()), inlandTransportAud: v.optional(v.number()), exportPaperworkAud: v.optional(v.number()),
       wharfHandlingAud: v.optional(v.number()), customsBrokerageAud: v.optional(v.number()), biosecurityAud: v.optional(v.number()), adrEngineeringAud: v.optional(v.number()),
+      freightAud: v.optional(v.number()), insuranceAud: v.optional(v.number()), insuranceRate: v.optional(v.number()), overrideCustomsDutyRate: v.optional(v.number()),
       registrationFee: v.optional(v.number()), tacFee: v.optional(v.number()), plateFee: v.optional(v.number()), ravAssessmentFee: v.optional(v.number()),
       japaneseOriginProof: v.optional(v.boolean()), modifiedVehicle: v.optional(v.boolean()), convertedToRhd: v.optional(v.boolean()),
       isFuelEfficient: v.optional(v.boolean()), isGreenPassengerCar: v.optional(v.boolean()),

@@ -58,6 +58,10 @@ export function validateLandedCostInput(input: LandedCostInput): void {
   checkNotNegative(input.insuranceAud, "insuranceAud");
   checkNotNegative(input.repairCostsAud, "repairCostsAud");
 
+  if (input.insuranceRate != null && (!Number.isFinite(input.insuranceRate) || input.insuranceRate < 0 || input.insuranceRate > 1)) {
+    throw new Error("insuranceRate must be between 0 and 1");
+  }
+
   if (
     input.overrideCustomsDutyRate != null &&
     (!Number.isFinite(input.overrideCustomsDutyRate) ||
@@ -139,9 +143,15 @@ export function calculateLandedCost(input: LandedCostInput): LandedCostResult {
     warnings.push(`Freight not supplied; using team estimate of $${DEFAULT_FREIGHT_AUD}.`);
   }
 
-  const insuranceAud = input.insuranceAud ?? money(fobValueAud * DEFAULT_INSURANCE_RATE);
+  const insuranceRate = input.insuranceRate ?? DEFAULT_INSURANCE_RATE;
+  const insuranceAud = input.insuranceAud ?? money(fobValueAud * insuranceRate);
+  const insuranceSource = input.insuranceAud != null
+    ? "Insurance quote or analyst input"
+    : input.insuranceRate == null
+      ? "Default percentage of FOB value"
+      : `Configured ${insuranceRate * 100}% of FOB value`;
   if (input.insuranceAud == null) {
-    warnings.push(`Insurance not supplied; using ${DEFAULT_INSURANCE_RATE * 100}% of FOB value.`);
+    warnings.push(`Insurance not supplied; using ${insuranceRate * 100}% of FOB value.`);
   }
 
   const customsDutyRate = getCustomsDutyRate(input);
@@ -187,11 +197,7 @@ export function calculateLandedCost(input: LandedCostInput): LandedCostResult {
       "estimate",
       input.freightAud == null ? "Team default estimate" : "Shipping quote or analyst input"
     ),
-    insurance: buildLineItem(
-      insuranceAud,
-      "estimate",
-      input.insuranceAud == null ? "Percentage of FOB value" : "Insurance quote or analyst input"
-    ),
+    insurance: buildLineItem(insuranceAud, "estimate", insuranceSource),
     customsDuty: buildLineItem(
       customsDutyAud,
       input.overrideCustomsDutyRate == null ? "official_rule" : "manual_input_required",
