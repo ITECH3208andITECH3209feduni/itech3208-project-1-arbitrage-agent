@@ -1,10 +1,9 @@
-# goo-net-crawler
+# Arbitrage Agent
 
-Crawl [Goo-net](https://www.goo-net.com) used car listings with LLM-powered extraction. Batch-fetches listing pages via [Exa](https://exa.ai), extracts 15+ structured fields per vehicle, auto-translates Japanese → English, and stores records in Convex.
+The Arbitrage Agent collects vehicle listings, extracts and normalizes their details, estimates import and resale costs, stores records in Convex, and displays them in a Vite dashboard. Crawlers use [Exa](https://exa.ai) and an OpenRouter model for discovery and extraction. Japan Car Direct uses a Playwright browser session.
 
-A building-block library plus tiny Vite viewer.
+The TypeScript crawlers are also available as a library and command-line tools.
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Node >= 18](https://img.shields.io/badge/node-%3E%3D18-brightgreen)](package.json)
 
 ## Install
@@ -113,7 +112,3 @@ pnpm crawl:jcd -- --url https://auc.japancardirect.com/aj-example.htm --max 1 --
 ```
 
 The JCD command always writes records to `output/japancardirect-records.json`. `--no-persist` skips the Convex upsert but still writes this JSON file. The default accepted lot URL format is `/aj-<id>.htm`; use `--detail-path-pattern <regex>` only if the site changes that format.
-
-## License
-
-MIT — see [LICENSE](LICENSE).

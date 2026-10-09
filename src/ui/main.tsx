@@ -6,6 +6,12 @@ import { convertJpyToAud, getJpyAudRate } from "../exchangeRate";
 import { normalizeYear } from "../year";
 import { estimateResaleAud } from "../profitEstimator";
 import { parseAnalystComparables, type AnalystComparable } from "../analystData";
+import {
+  DEALERSHIP_COST_FIELDS,
+  dealershipCostOverridesFromInputs,
+  loadDealershipCostConfiguration,
+  saveDealershipCostConfiguration,
+} from "../dealershipCostConfig";
 import type { VehicleRecord } from "../types";
 import { ArchitectureFlowchart } from "./ArchitectureFlowchart";
 import { estimateFreshness, presentAuthoritativeEstimate } from "./vehiclePresentation";
@@ -205,7 +211,7 @@ function toView(v: Vehicle, rate: number, analystComparables: readonly AnalystCo
 function App() {
   const [rate, setRate] = useState(0.0099);
   const [rateLabel, setRateLabel] = useState("loading");
-  const [tick, setTick] = useState(0);
+  const [, setClockTick] = useState(0);
   const [sort, setSort] = useState("");
   const [search, setSearch] = useState("");
   const [minPrice, setMinPrice] = useState("");
@@ -233,12 +239,7 @@ function App() {
   const [japaneseOriginProof, setJapaneseOriginProof] = useState(false);
   const [modifiedVehicle, setModifiedVehicle] = useState(false);
   const [convertedToRhd, setConvertedToRhd] = useState(false);
-  const [costInputs, setCostInputs] = useState<Record<string, string>>({});
-  const costFields = [
-    ["agentFeeAud", "Agent fee"], ["inlandTransportAud", "Japan inland transport"], ["exportPaperworkAud", "Export paperwork"],
-    ["wharfHandlingAud", "Wharf/port handling"], ["customsBrokerageAud", "Customs brokerage"], ["biosecurityAud", "Biosecurity"], ["adrEngineeringAud", "ADR engineering"],
-    ["registrationFee", "Registration"], ["tacFee", "TAC"], ["plateFee", "Plates"], ["ravAssessmentFee", "RAV assessment"],
-  ] as const;
+  const [costInputs, setCostInputs] = useState(loadDealershipCostConfiguration);
   const [analystComparables, setAnalystComparables] = useState<AnalystComparable[]>(() => {
     try { return parseAnalystComparables(window.localStorage.getItem("analyst-comparables") ?? "[]", "json"); } catch { return []; }
   });
@@ -297,7 +298,10 @@ function App() {
     });
   }, []);
   useEffect(() => {
-    const id = window.setInterval(() => setTick((x) => x + 1), 1000);
+    saveDealershipCostConfiguration(costInputs);
+  }, [costInputs]);
+  useEffect(() => {
+    const id = window.setInterval(() => setClockTick((x) => x + 1), 1000);
     return () => window.clearInterval(id);
   }, []);
   useEffect(() => {
@@ -623,10 +627,7 @@ function App() {
       return;
     }
     const costOverrides = {
-      ...Object.fromEntries(costFields.flatMap(([key]) => {
-        const value = Number(costInputs[key]);
-        return Number.isFinite(value) && value >= 0 ? [[key, value]] : [];
-      })),
+      ...dealershipCostOverridesFromInputs(costInputs),
       japaneseOriginProof,
       modifiedVehicle,
       convertedToRhd,
@@ -763,9 +764,22 @@ function App() {
             {scrapeStatus && <p>{scrapeStatus}</p>}
           </form>
           <div className="filter-section cost-config-panel">
-            <h3>Import and compliance inputs</h3>
-            <p className="config-note">Optional values override defaults for the next scrape. Blank values remain estimates/warnings.</p>
-            {costFields.map(([key, label]) => <input key={key} type="number" min="0" placeholder={`${label} AUD`} value={costInputs[key] ?? ""} onChange={(e) => setCostInputs((current) => ({ ...current, [key]: e.target.value }))} />)}
+            <h3>Dealership cost settings</h3>
+            <p className="config-note">Saved in this browser and applied to future scrapes. Blank values use system estimates. Rates are entered as percentages. A direct insurance premium overrides the insurance rate. Customs duty overrides should be checked against current import rules.</p>
+            {DEALERSHIP_COST_FIELDS.map(([key, label, kind]) => (
+              <input
+                key={key}
+                type="number"
+                min="0"
+                max={kind === "percent" ? 100 : undefined}
+                step="0.01"
+                aria-label={label}
+                placeholder={`${label} ${kind === "percent" ? "%" : "AUD"}`}
+                value={costInputs[key] ?? ""}
+                onChange={(e) => setCostInputs((current) => ({ ...current, [key]: e.target.value }))}
+              />
+            ))}
+            <button type="button" onClick={() => setCostInputs({})}>Reset dealership costs</button>
             <label className="check-item"><input type="checkbox" checked={japaneseOriginProof} onChange={(e) => setJapaneseOriginProof(e.target.checked)} /> Japanese origin proof (JAEPA)</label>
             <label className="check-item"><input type="checkbox" checked={modifiedVehicle} onChange={(e) => setModifiedVehicle(e.target.checked)} /> Modified vehicle</label>
             <label className="check-item"><input type="checkbox" checked={convertedToRhd} onChange={(e) => setConvertedToRhd(e.target.checked)} /> Converted to RHD</label>

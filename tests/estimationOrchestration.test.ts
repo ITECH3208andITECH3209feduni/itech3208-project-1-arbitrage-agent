@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { vehicleFields } from "../convex/vehicleFields.js";
 import type { VehicleRecord } from "../src/types.js";
 import { orchestrateEstimates, prepareRefreshRecord } from "../src/estimationOrchestration.js";
 
@@ -17,6 +18,37 @@ describe("estimation orchestration", () => {
   it("produces complete purchase/import fields for JP records", () => {
     const result = orchestrateEstimates([record()], new Map(), 0.01)[0];
     expect(result).toMatchObject({ purchaseAud: 20_000, importCostAud: 7_365.2, landedCostAud: 25_410, driveawayCostAud: 27_365.2, estimatedProfitAud: null, resaleComparableCount: 0 });
+  });
+
+  it("keeps JP estimate fields compatible with Convex vehicle storage", () => {
+    const result = orchestrateEstimates([record({ isGreenPassengerCar: true })], new Map(), 0.01)[0];
+    const unknownFields = Object.keys(result).filter((field) => !(field in vehicleFields));
+
+    expect(unknownFields).toEqual([]);
+    expect(result).toMatchObject({
+      estimatedProfitAud: null,
+      resaleConfidence: null,
+      isGreenPassengerCar: true,
+    });
+  });
+
+  it("applies saved dealership cost settings to the vehicle estimate", () => {
+    const result = orchestrateEstimates([record({
+      agentFeeAud: 100,
+      freightAud: 500,
+      insuranceRate: 0.02,
+      overrideCustomsDutyRate: 0.1,
+    })], new Map(), 0.01)[0];
+
+    expect(result).toMatchObject({
+      landedCostAud: 25_313.2,
+      landedCostBreakdown: {
+        agentFee: { amount: 100 },
+        freight: { amount: 500 },
+        insurance: { amount: 402 },
+        customsDuty: { amount: 2_010 },
+      },
+    });
   });
 
   it("clears estimates when comparables are sparse", () => {
