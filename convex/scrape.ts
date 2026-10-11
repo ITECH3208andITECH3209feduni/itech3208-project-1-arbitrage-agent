@@ -9,6 +9,7 @@ import { crawlPrestigeMotorsport } from "../src/prestigemotorsportCrawler.js";
 import { refreshListing } from "../src/refreshListing.js";
 import { canonicalizeUrl } from "../src/utils.js";
 import type { VehicleRecord } from "../src/types";
+import { VehicleRecordSchema } from "../src/vehicleValidation.js";
 import { normalizeYear } from "../src/year";
 import { getJpyAudRate } from "../src/exchangeRate.js";
 import { orchestrateEstimates, prepareRefreshRecord, withoutConvexFields } from "../src/estimationOrchestration.js";
@@ -65,6 +66,60 @@ function vehicleChanged(record: VehicleRecord, existing: VehicleRecord | null): 
   }
   return false;
 }
+
+const costOverridesValidator = v.object({
+  agentFeeAud: v.optional(v.number()), inlandTransportAud: v.optional(v.number()), exportPaperworkAud: v.optional(v.number()),
+  wharfHandlingAud: v.optional(v.number()), customsBrokerageAud: v.optional(v.number()), biosecurityAud: v.optional(v.number()), adrEngineeringAud: v.optional(v.number()),
+  registrationFee: v.optional(v.number()), tacFee: v.optional(v.number()), plateFee: v.optional(v.number()),
+  japaneseOriginProof: v.optional(v.boolean()), modifiedVehicle: v.optional(v.boolean()), convertedToRhd: v.optional(v.boolean()),
+  isFuelEfficient: v.optional(v.boolean()), isGreenPassengerCar: v.optional(v.boolean()),
+});
+
+export const ingestJapanCarDirect = action({
+  args: {
+    secret: v.string(),
+    records: v.array(v.any()),
+    make: v.optional(v.string()),
+    model: v.optional(v.string()),
+    costOverrides: v.optional(costOverridesValidator),
+  },
+  handler: async (ctx, args) => {
+    const secret = process.env.CONVEX_INGEST_SECRET;
+    if (!secret || args.secret !== secret) throw new Error("Unauthorized");
+
+    const records = args.records.map((record, index) => {
+      const validation = VehicleRecordSchema.safeParse(record);
+      if (!validation.success) {
+        throw new Error(`Invalid Japan Car Direct record ${index + 1}: ${validation.error.issues[0]?.message ?? "invalid vehicle"}`);
+      }
+      return {
+        ...validation.data,
+        ...args.costOverrides,
+        market: validation.data.market ?? "JP",
+        currency: validation.data.currency ?? "JPY",
+        source: validation.data.source ?? "japancardirect",
+        sourceType: validation.data.sourceType ?? "auction",
+        make: validation.data.make?.trim() || args.make?.trim() || undefined,
+        model: validation.data.model?.trim() || args.model?.trim() || undefined,
+      } as VehicleRecord;
+    });
+
+    const missingMakeModel = records.find((record) => !record.make?.trim() || !record.model?.trim());
+    if (missingMakeModel) throw new Error(`Scraper returned vehicle without make/model: ${missingMakeModel.url}`);
+
+    const groups = new Map<string, Promise<VehicleRecord[]>>();
+    for (const record of records) {
+      const groupKey = `${record.make!.trim().toLowerCase()}\u0000${record.model!.trim().toLowerCase()}`;
+      if (!groups.has(groupKey)) groups.set(groupKey, getAllComparables(ctx, record.make!, record.model!, 50));
+    }
+    const rate = records.length > 0 ? await getJpyAudRate({ storage: memoryStorage() }) : null;
+    const comparableMap = new Map<string, readonly VehicleRecord[]>();
+    for (const [groupKey, promise] of groups) comparableMap.set(groupKey, await promise);
+    const enrichedRecords = orchestrateEstimates(records, comparableMap, rate?.rate ?? 0);
+    const upsert = await ctx.runMutation(upsertMany, { secret, vehicles: enrichedRecords });
+    return { upserted: upsert.upserted, updatedAt: upsert.updatedAt };
+  },
+});
 
 export const refreshVehicle = action({
   args: { url: v.string() },
@@ -139,7 +194,7 @@ export const recomputeVehicle = action({
 
 export const vehicles = action({
   args: {
-    source: v.union(v.literal("goonet"), v.literal("autotrader"), v.literal("prestigemotorsport")),
+    source: v.union(v.literal("goonet"), v.literal("autotrader"), v.literal("japancardirect"), v.literal("prestigemotorsport")),
     brand: v.optional(v.string()),
     model: v.optional(v.string()),
     brandUrl: v.optional(v.string()),
@@ -148,16 +203,13 @@ export const vehicles = action({
     year: v.optional(v.number()),
     auctionDate: v.optional(v.union(v.literal("Today"), v.literal("Future"), v.literal("Past"))),
     requireSold: v.optional(v.boolean()),
-    costOverrides: v.optional(v.object({
-      agentFeeAud: v.optional(v.number()), inlandTransportAud: v.optional(v.number()), exportPaperworkAud: v.optional(v.number()),
-      wharfHandlingAud: v.optional(v.number()), customsBrokerageAud: v.optional(v.number()), biosecurityAud: v.optional(v.number()), adrEngineeringAud: v.optional(v.number()),
-      registrationFee: v.optional(v.number()), tacFee: v.optional(v.number()), plateFee: v.optional(v.number()), ravAssessmentFee: v.optional(v.number()),
-      japaneseOriginProof: v.optional(v.boolean()), modifiedVehicle: v.optional(v.boolean()), convertedToRhd: v.optional(v.boolean()),
-      isFuelEfficient: v.optional(v.boolean()), isGreenPassengerCar: v.optional(v.boolean()),
-    })),
+    costOverrides: v.optional(costOverridesValidator),
     max: v.number(),
   },
     handler: async (ctx, args) => {
+    if (args.source === "japancardirect") {
+      throw new Error("Japan Car Direct scraping runs in the local Node sidecar. Start it with pnpm dev:jcd:server.");
+    }
     const missing = ["EXA_API_KEY", "OPENROUTER_API_KEY", "CONVEX_INGEST_SECRET"].filter(
       (name) => !process.env[name],
     );
@@ -180,25 +232,26 @@ export const vehicles = action({
       args.source === "autotrader"
         ? await crawlAutotrader({ query: args.query, brand, model, urls: args.urls, year, max, persist: false })
         : args.source === "prestigemotorsport"
-          ? await crawlPrestigeMotorsport({
-              make: brand,
-              model,
-              yearFrom: year,
-              yearTo: year,
-              auctionDate: args.auctionDate,
-              urls: args.urls,
-              max,
-              requireSold: args.requireSold,
-              persist: false,
-            })
-          : await crawlGoonet({ brand, model, brandUrl: args.brandUrl, year, max, persist: false });
+            ? await crawlPrestigeMotorsport({
+                make: brand,
+                model,
+                yearFrom: year,
+                yearTo: year,
+                auctionDate: args.auctionDate,
+                urls: args.urls,
+                max,
+                requireSold: args.requireSold,
+                persist: false,
+              })
+            : await crawlGoonet({ brand, model, brandUrl: args.brandUrl, year, max, persist: false });
     const defaultsBySource = {
       goonet: { market: "JP" as const, currency: "JPY" as const, source: "goo-net", sourceType: "dealer" as const },
       autotrader: { market: "AU" as const, currency: "AUD" as const, source: "autotrader", sourceType: "dealer" as const },
+      japancardirect: { market: "JP" as const, currency: "JPY" as const, source: "japancardirect", sourceType: "auction" as const },
       prestigemotorsport: { market: "AU" as const, currency: "AUD" as const, source: "prestigemotorsport", sourceType: "auction" as const },
     }[args.source];
 
-    const records = result.records.map((record) => ({
+    const records: VehicleRecord[] = result.records.map((record: VehicleRecord) => ({
       ...record,
       ...args.costOverrides,
       market: record.market ?? defaultsBySource.market,
@@ -209,13 +262,13 @@ export const vehicles = action({
       model: record.model?.trim() || model,
     }));
 
-    const missingMakeModel = records.find((record) => !record.make?.trim() || !record.model?.trim());
+    const missingMakeModel = records.find((record: VehicleRecord) => !record.make?.trim() || !record.model?.trim());
     if (missingMakeModel) throw new Error(`Scraper returned vehicle without make/model: ${missingMakeModel.url}`);
 
     const secret = process.env.CONVEX_INGEST_SECRET;
     if (!secret) throw new Error("CONVEX_INGEST_SECRET required");
 
-    const jpRecords = records.filter((record) => record.market === "JP");
+    const jpRecords: VehicleRecord[] = records.filter((record: VehicleRecord) => record.market === "JP");
     const groups = new Map<string, Promise<VehicleRecord[]>>();
     for (const record of jpRecords) {
       const groupKey = `${record.make!.trim().toLowerCase()}\u0000${record.model!.trim().toLowerCase()}`;

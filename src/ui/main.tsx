@@ -126,13 +126,15 @@ function sourcePrefix(source?: string) {
   const normalized = normalizedSource(source);
   if (normalized.includes("autotrader")) return "AUTOTRADER";
   if (normalized.includes("goo")) return "GOONET";
+  if (normalized.includes("japancardirect")) return "JAPAN CARDIRECT";
   if (normalized.includes("prestige")) return "PRESTIGE";
   return normalized.toUpperCase() || "SOURCE";
 }
-type ListingSource = "goonet" | "autotrader" | "prestigemotorsport";
+type ListingSource = "japancardirect" | "prestigemotorsport" | "goonet" | "autotrader";
 function isSource(v: Vehicle, source: ListingSource) {
   const normalized = normalizedSource(v.source);
   if (source === "autotrader") return normalized.includes("autotrader");
+  if (source === "japancardirect") return normalized.includes("japancardirect");
   if (source === "prestigemotorsport") return normalized.includes("prestige");
   return normalized.includes("goo");
 }
@@ -217,7 +219,7 @@ function App() {
   const [models, setModels] = useState<string[]>([]);
   const [selected, setSelected] = useState<ViewVehicle | null>(null);
   const [bid, setBid] = useState("");
-  const [scrapeSource, setScrapeSource] = useState<ListingSource>("goonet");
+  const [scrapeSource, setScrapeSource] = useState<ListingSource>("japancardirect");
   const [scrapeBrand, setScrapeBrand] = useState("TOYOTA");
   const [scrapeModel, setScrapeModel] = useState("");
   const [scrapeYear, setScrapeYear] = useState("");
@@ -252,7 +254,12 @@ function App() {
 
   const scrapeVehicles = useAction(api.scrape.vehicles);
   const importAnalystSales = useMutation(api.analystSales.importBatch);
-  const remoteAnalystSales = useQuery(api.analystSales.list, { limit: 1000 }) as AnalystComparable[] | undefined;
+  let remoteAnalystSales: AnalystComparable[] | undefined;
+  try {
+    remoteAnalystSales = useQuery(api.analystSales.list, { limit: 1000 }) as AnalystComparable[] | undefined;
+  } catch {
+    remoteAnalystSales = [];
+  }
   const refreshVehicle = useAction(api.scrape.refreshVehicle);
   const allAnalystComparables = useMemo(() => {
     const combined = [...(remoteAnalystSales ?? []), ...analystComparables];
@@ -268,27 +275,27 @@ function App() {
   const [allMakes, setAllMakes] = useState<string[]>([]);
   const [modelsByMake, setModelsByMake] = useState<Record<string, string[]>>({});
   const previousAllModelsRef = useRef<string[]>([]);
-  const facets = useQuery(api.vehicles.facets, {
-    cursor: facetCursor,
-    limit: FACETS_PAGE_SIZE,
-  }) as FacetPage | undefined;
-  const goonetVehicles = useQuery(api.vehicles.list, {
-    limit: 250,
-    source: "goo-net",
-  }) as Vehicle[] | undefined;
-  const autotraderVehicles = useQuery(api.vehicles.list, {
-    limit: 250,
-    source: "autotrader",
-  }) as Vehicle[] | undefined;
-  const prestigeVehicles = useQuery(api.vehicles.list, {
-    limit: 250,
-    source: "prestigemotorsport",
-  }) as Vehicle[] | undefined;
-  const loading = goonetVehicles === undefined || autotraderVehicles === undefined || prestigeVehicles === undefined;
-  const raw = useMemo(
-    () => [...(goonetVehicles ?? []), ...(autotraderVehicles ?? []), ...(prestigeVehicles ?? [])],
-    [goonetVehicles, autotraderVehicles, prestigeVehicles],
-  );
+  let facets: FacetPage | undefined;
+  try {
+    facets = useQuery(api.vehicles.facets, {
+      cursor: facetCursor,
+      limit: FACETS_PAGE_SIZE,
+      source: "japancardirect",
+    }) as FacetPage | undefined;
+  } catch {
+    facets = undefined;
+  }
+  let japanCarDirectVehicles: Vehicle[] | undefined;
+  try {
+    japanCarDirectVehicles = useQuery(api.vehicles.list, {
+      limit: 250,
+      source: "japancardirect",
+    }) as Vehicle[] | undefined;
+  } catch {
+    japanCarDirectVehicles = [];
+  }
+  const loading = japanCarDirectVehicles === undefined;
+  const raw = useMemo(() => japanCarDirectVehicles ?? [], [japanCarDirectVehicles]);
 
   useEffect(() => {
     getJpyAudRate().then((c) => {
@@ -479,19 +486,6 @@ function App() {
     sort,
   ]);
 
-  const goonetFiltered = useMemo(
-    () => filtered.filter((vehicle) => isSource(vehicle, "goonet")),
-    [filtered],
-  );
-  const autotraderFiltered = useMemo(
-    () => filtered.filter((vehicle) => isSource(vehicle, "autotrader")),
-    [filtered],
-  );
-  const prestigeFiltered = useMemo(
-    () => filtered.filter((vehicle) => isSource(vehicle, "prestigemotorsport")),
-    [filtered],
-  );
-
   const toggle = (
     arr: string[],
     set: (v: string[]) => void,
@@ -596,7 +590,7 @@ function App() {
         ? rawBrand.toUpperCase()
         : rawBrand
       : undefined;
-    const model = scrapeModel.trim() || undefined;
+    const model = scrapeModel.trim() || (["japancardirect", "prestigemotorsport"].includes(scrapeSource) && brand ? "Any" : undefined);
     let year: number | undefined;
     try {
       year = normalizeYear(scrapeYear);
@@ -614,12 +608,12 @@ function App() {
       setScrapeStatus("Enter Autotrader brand/model or URL.");
       return;
     }
-    if (scrapeSource === "prestigemotorsport" && !brand && urls.length === 0) {
-      setScrapeStatus("Enter Prestige Motorsport make or URL.");
+    if (scrapeSource === "japancardirect" && !brand && urls.length === 0) {
+      setScrapeStatus("Enter Japan Car Direct make or URL.");
       return;
     }
-    if (scrapeSource === "prestigemotorsport" && !model && urls.length === 0) {
-      setScrapeStatus("Enter a Prestige Motorsport model, make, or direct URL.");
+    if (scrapeSource === "prestigemotorsport" && !brand && urls.length === 0) {
+      setScrapeStatus("Enter Prestige Motorsport make or URL.");
       return;
     }
     const costOverrides = {
@@ -634,7 +628,7 @@ function App() {
     setScraping(true);
     setScrapeStatus("Scraping… this can take a minute.");
     try {
-      const result = await scrapeVehicles({
+      const scrapeArgs = {
         source: scrapeSource,
         brand,
         model,
@@ -646,8 +640,27 @@ function App() {
         costOverrides,
         max,
         requireSold: scrapeSource === "prestigemotorsport" ? requireSold : undefined,
-      });
-      setScrapeStatus(`Done: ${result.upserted} saved, ${result.totalFailed} failed.`);
+      };
+      if (scrapeSource === "japancardirect") {
+        const response = await fetch("/api/jcd/scrape", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            make: brand,
+            model,
+            year,
+            urls: scrapeArgs.urls,
+            max,
+            costOverrides,
+          }),
+        });
+        const result = await response.json() as { upserted?: number; totalFailed?: number; error?: string };
+        if (!response.ok) throw new Error(result.error ?? `Local Japan Car Direct service failed (${response.status})`);
+        setScrapeStatus(`Done: ${result.upserted ?? 0} saved, ${result.totalFailed ?? 0} failed.`);
+      } else {
+        const result = await scrapeVehicles(scrapeArgs);
+        setScrapeStatus(`Done: ${result.upserted} saved, ${result.totalFailed} failed.`);
+      }
     } catch (err) {
       setScrapeStatus(userError(err));
     } finally {
@@ -695,24 +708,28 @@ function App() {
               value={scrapeSource}
               onChange={(e) => setScrapeSource(e.target.value as ListingSource)}
             >
+              <option value="japancardirect">Japan Car Direct</option>
+              <option value="prestigemotorsport">Prestige Motorsport</option>
               <option value="goonet">Goo-net</option>
               <option value="autotrader">Autotrader</option>
-              <option value="prestigemotorsport">Prestige Motorsport</option>
             </select>
-            {scrapeSource === "prestigemotorsport" && <select value={auctionDate} onChange={(e) => setAuctionDate(e.target.value as "Today" | "Future" | "Past")} aria-label="Prestige auction date">
-              <option value="Today">Today auctions</option>
-              <option value="Future">Future auctions</option>
-              <option value="Past">Past auctions</option>
-            </select>}
             <input
               value={scrapeBrand}
               onChange={(e) => setScrapeBrand(e.target.value)}
-              placeholder="Brand, e.g. Toyota"
+              placeholder={
+                scrapeSource === "prestigemotorsport"
+                  ? "Brand, e.g. Toyota"
+                  : "Brand, e.g. Toyota"
+              }
             />
             <input
               value={scrapeModel}
               onChange={(e) => setScrapeModel(e.target.value)}
-              placeholder={scrapeSource === "prestigemotorsport" ? "Model optional (or use URL)" : "Model optional"}
+              placeholder={
+                scrapeSource === "prestigemotorsport"
+                  ? "Model optional; defaults to Any"
+                  : "Model optional"
+              }
             />
             <input
               type="number"
@@ -724,15 +741,16 @@ function App() {
               value={scrapeUrl}
               onChange={(e) => setScrapeUrl(e.target.value)}
               placeholder={
-                scrapeSource === "goonet"
-                  ? "Optional Goo-net URL"
-                  : scrapeSource === "autotrader"
-                    ? "Optional Autotrader URL(s)"
-                    : "Optional Prestige URL(s)"
+                scrapeSource === "japancardirect"
+                  ? "Optional Japan Car Direct URL(s)"
+                  : scrapeSource === "goonet"
+                    ? "Optional Goo-net URL"
+                    : scrapeSource === "autotrader"
+                      ? "Optional Autotrader URL(s)"
+                      : "Optional Prestige URL(s)"
               }
             />
             <div className="scrape-row">
-            {scrapeSource === "prestigemotorsport" && <label className="check-item"><input type="checkbox" checked={requireSold} onChange={(e) => setRequireSold(e.target.checked)} /> Only confirmed sold listings</label>}
               <input
                 type="number"
                 min="1"
@@ -885,41 +903,15 @@ function App() {
           <div className="split-view">
             <section className="source-panel">
               <div className="grid-header">
-                <h2>Goo-net</h2>
+                <h2>Japan Car Direct</h2>
                 <span className="count">
                   {loading
                     ? "Loading..."
-                    : `${goonetFiltered.length} listing${goonetFiltered.length !== 1 ? "s" : ""}`}
+                    : `${filtered.length} listing${filtered.length !== 1 ? "s" : ""}`}
                 </span>
               </div>
               <div className="grid source-grid">
-                {renderVehicleCards(goonetFiltered, "No Goo-net listings match your filters.")}
-              </div>
-            </section>
-            <section className="source-panel">
-              <div className="grid-header">
-                <h2>Prestige Motorsport</h2>
-                <span className="count">
-                  {loading
-                    ? "Loading..."
-                    : `${prestigeFiltered.length} listing${prestigeFiltered.length !== 1 ? "s" : ""}`}
-                </span>
-              </div>
-              <div className="grid source-grid">
-                {renderVehicleCards(prestigeFiltered, "No Prestige Motorsport listings match your filters.")}
-              </div>
-            </section>
-            <section className="source-panel">
-              <div className="grid-header">
-                <h2>Autotrader</h2>
-                <span className="count">
-                  {loading
-                    ? "Loading..."
-                    : `${autotraderFiltered.length} listing${autotraderFiltered.length !== 1 ? "s" : ""}`}
-                </span>
-              </div>
-              <div className="grid source-grid">
-                {renderVehicleCards(autotraderFiltered, "No Autotrader listings match your filters.")}
+                {renderVehicleCards(filtered, "No Japan Car Direct listings match your filters.")}
               </div>
             </section>
           </div>

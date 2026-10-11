@@ -29,6 +29,7 @@
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "dev": "vite",
+    "dev:jcd:server": "tsx src/jcdLocalServer.ts",
     "build": "vite build",
     "preview": "vite preview"
   },

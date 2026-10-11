@@ -20,6 +20,8 @@ export interface JapanCarDirectConfig {
   detailPathPattern?: string;
   /** Direct detail URLs, bypassing interactive search discovery. */
   urls?: string[];
+  /** Disable terminal prompts when invoked through the UI sidecar. */
+  interactive?: boolean;
 }
 
 function safeAuctionUrl(raw: string): string {
@@ -89,7 +91,8 @@ async function attemptLogin(page: Page): Promise<void> {
 
 /** Apply the site's own search UI; do not navigate to undocumented API endpoints. */
 async function applyAuctionSearch(page: Page, config: JapanCarDirectConfig): Promise<boolean> {
-  if (!config.make || !config.model) return false;
+  if (!config.make) return false;
+  const anyModel = !config.model || config.model.trim().toLowerCase() === "any";
   const lotSelector = '#aj_out_poisk a.my_bids[href], #aj_out_poisk a[href*="/aj-"][href$=".htm"]';
   try {
     await page.locator('#poisk').waitFor({ state: 'attached', timeout: 20000 });
@@ -100,11 +103,14 @@ async function applyAuctionSearch(page: Page, config: JapanCarDirectConfig): Pro
       if (!maker) return null;
       const modelRows = (document.querySelector<HTMLTextAreaElement>('#model_str')?.value || '')
         .split(';').map(row => { const n = row.indexOf(':'); return [row.slice(0, n), row.slice(n + 1)] as const; });
+      if (!model || model.trim().toLowerCase() === 'any') {
+        return { makerId: maker[0], modelLabel: null, modelName: 'any' };
+      }
       const target = model.trim().toLowerCase();
       const matched = modelRows.find(([id, label]) => id === maker[0] &&
         label.replace(/\s*\(\d+\)\s*$/, '').trim().toLowerCase() === target);
       return matched ? { makerId: maker[0], modelLabel: matched[1], modelName: target } : null;
-    }, { make: config.make, model: config.model });
+    }, { make: config.make, model: config.model ?? "Any" });
     if (!choice) {
       console.warn(`[jcd-crawl] Could not find ${config.make} ${config.model} in search lookup tables.`);
       return false;
@@ -113,7 +119,7 @@ async function applyAuctionSearch(page: Page, config: JapanCarDirectConfig): Pro
     // The post-search HTML calls model_submit('1','SUPRA (3)',1) from model links.
     // It separately offers SEARCH (Fline_before; Fline; model_submit()).
     // Select the model first, then explicitly initiate the search if necessary.
-    await page.evaluate(({ makerId, modelLabel, year }) => {
+    if (!anyModel) await page.evaluate(({ makerId, modelLabel, year }) => {
       const win = window as unknown as { model_submit?: (...args: unknown[]) => void };
       if (typeof win.model_submit !== 'function') throw new Error('model_submit unavailable');
       const form = document.querySelector<HTMLFormElement>('#poisk');
@@ -126,22 +132,40 @@ async function applyAuctionSearch(page: Page, config: JapanCarDirectConfig): Pro
       }
       win.model_submit(makerId, modelLabel, 1);
     }, { ...choice, year: config.year });
+    else await page.evaluate(({ makerId, year }) => {
+      const form = document.querySelector<HTMLFormElement>('#poisk');
+      if (!form) throw new Error('#poisk is missing');
+      const vendor = form.querySelector<HTMLInputElement>('input[name="vendor"]');
+      const model = form.querySelector<HTMLInputElement>('input[name="model"]');
+      if (!vendor) throw new Error('make search field is missing');
+      vendor.value = makerId;
+      if (model) model.value = '';
+      if (year !== undefined) {
+        for (const name of ['year', 'year2', '_year', '_year2']) {
+          const el = form.querySelector<HTMLInputElement>(`input[name="${name}"]`);
+          if (el) el.value = String(year);
+        }
+      }
+    }, { makerId: choice.makerId, year: config.year });
 
     const results = page.locator(lotSelector);
     // A few searches complete with the model click itself; don't submit twice.
-    let found = await results.first().waitFor({ state: 'attached', timeout: 8000 })
+    let found = anyModel ? false : await results.first().waitFor({ state: 'attached', timeout: 8000 })
       .then(() => true).catch(() => false);
     if (!found) {
       const formState = await page.locator('#poisk').evaluate((form) => {
-        const f = form as HTMLFormElement;
-        const field = (name: string) => f.querySelector<HTMLInputElement>(`input[name="${name}"]`)?.value || '';
-        return { vendor: field('vendor'), model: field('model'), year: field('year') };
+        const element = form as HTMLFormElement;
+        return {
+          vendor: element.querySelector<HTMLInputElement>('input[name="vendor"]')?.value || '',
+          model: element.querySelector<HTMLInputElement>('input[name="model"]')?.value || '',
+          year: element.querySelector<HTMLInputElement>('input[name="year"]')?.value || '',
+        };
       });
       console.log('[jcd-crawl] No lot links after choosing model. Search form state:', JSON.stringify(formState));
       const desired = choice.modelName;
       const currentModel = formState.model.replace(/\s*\(\d+\)\s*$/, '').trim().toLowerCase();
-      if (formState.vendor !== choice.makerId || currentModel !== desired) {
-        console.warn('[jcd-crawl] Site did not apply the requested make/model; declining to scrape unrelated results.');
+      if (formState.vendor !== choice.makerId || (anyModel ? Boolean(currentModel) : currentModel !== desired)) {
+        console.warn('[jcd-crawl] Site did not apply the requested make/model filter; declining to scrape unrelated results.');
         return false;
       }
       await page.evaluate(() => {
@@ -167,7 +191,7 @@ async function applyAuctionSearch(page: Page, config: JapanCarDirectConfig): Pro
       console.warn('[jcd-crawl] Search completed without detectable auction links:', JSON.stringify(diagnostic));
       return false;
     }
-    console.log(`[jcd-crawl] Automated search applied: ${config.make} ${config.model}` +
+    console.log(`[jcd-crawl] Automated search applied: ${config.make} ${anyModel ? "Any" : config.model}` +
       (config.year ? ` (${config.year})` : ''));
     return true;
   } catch (error) {
@@ -192,12 +216,18 @@ export async function crawlJapanCarDirect(config: JapanCarDirectConfig): Promise
       let authenticated = await page.evaluate(() =>
         (window as unknown as { is_auth?: number }).is_auth === 1).catch(() => false);
       if (!authenticated) {
+        if (config.interactive === false) {
+          throw new Error("Japan Car Direct login is required. Sign in once with `pnpm crawl:jcd` and retry the UI scrape.");
+        }
         await pause("Sign in to Japan Car Direct in the browser (complete any verification).");
         authenticated = await page.evaluate(() =>
           (window as unknown as { is_auth?: number }).is_auth === 1).catch(() => false);
       }
       const searched = authenticated && await applyAuctionSearch(page, config);
       if (!searched) {
+        if (config.interactive === false) {
+          throw new Error("Japan Car Direct filters could not be applied. Check the make/model and retry, or use direct lot URLs.");
+        }
         await pause("Automated filters unavailable. Apply your filters and run a search manually in the browser.");
       }
     }

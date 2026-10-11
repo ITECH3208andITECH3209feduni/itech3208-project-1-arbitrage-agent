@@ -89,6 +89,7 @@ const vehicleFields = {
   auctionSalesPoints: v.optional(v.array(v.string())),
   damageCodes: v.optional(v.array(v.string())),
   estimatedResaleAud: v.optional(v.union(v.number(), v.null())),
+  estimatedProfitAud: v.optional(v.union(v.number(), v.null())),
   estimatedResaleLowAud: v.optional(v.union(v.number(), v.null())),
   estimatedResaleHighAud: v.optional(v.union(v.number(), v.null())),
   resaleConfidence: v.optional(v.union(v.number(), v.null())),

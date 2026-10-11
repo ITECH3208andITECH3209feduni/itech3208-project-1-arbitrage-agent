@@ -80,6 +80,14 @@ pnpm dev
 
 Open the Vite app. It reads live Convex data through `convex/react` using `VITE_CONVEX_URL`.
 
+Japan Car Direct uses a visible, interactive Playwright browser, so it runs in a local Node sidecar rather than inside Convex. For JCD scraping from the UI, start this in a second terminal:
+
+```bash
+pnpm dev:jcd:server
+```
+
+The sidecar listens only on `127.0.0.1:3001`; Vite proxies its `/api/jcd` endpoint. It reads `CONVEX_URL`, `CONVEX_INGEST_SECRET`, and `OPENROUTER_API_KEY` from `.env.local` or `.env`. Keep both the Vite app and sidecar running while scraping.
+
 ## How It Works
 
 1. **Discover** — Exa subpages on known brand pages (`src/brands.ts`).

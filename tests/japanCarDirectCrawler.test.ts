@@ -37,6 +37,7 @@ interface FakePageOptions {
   lotUrls?: string[];
   loginFieldsVisible?: boolean;
   bodyText?: string;
+  formState?: { vendor: string; model: string; year: string };
   galleryLinks?: Array<{ id: string; href: string }>;
 }
 
@@ -76,7 +77,7 @@ function fakePage(options: FakePageOptions = {}) {
         let evaluationResult: unknown;
         if (selector.includes("#aj_out_poisk")) evaluationAllResult = options.lotUrls ?? [];
         else if (selector.startsWith('a[id^="thumb"')) evaluationAllResult = options.galleryLinks ?? [];
-        else if (selector === "#poisk") evaluationResult = { vendor: "1", model: "SUPRA", year: "" };
+        else if (selector === "#poisk") evaluationResult = options.formState ?? { vendor: "1", model: "SUPRA", year: "" };
         else if (selector === 'form input[name]') evaluationAllResult = [];
         locator = fakeLocator({
           visible: options.loginFieldsVisible,
@@ -161,6 +162,33 @@ describe("crawlJapanCarDirect", () => {
     expect(searchPage.selectors).toContain("#poisk");
   });
 
+  it("searches all models when only a make is provided", async () => {
+    const searchPage = fakePage({
+      evaluationResults: [
+        false,
+        true,
+        { makerId: "1", modelLabel: null, modelName: "any" },
+        undefined,
+      ],
+      lotUrls: ["/aj-any-model-123.htm"],
+      formState: { vendor: "1", model: "", year: "" },
+    });
+    setupBrowser(searchPage);
+
+    await crawlJapanCarDirect({ make: "Toyota", model: "Any", max: 5, persist: false });
+
+    expect(createInterface).toHaveBeenCalledTimes(1);
+    expect(searchPage.page.evaluate).toHaveBeenNthCalledWith(3, expect.any(Function), {
+      make: "Toyota",
+      model: "Any",
+    });
+    expect(searchPage.page.evaluate).toHaveBeenNthCalledWith(4, expect.any(Function), {
+      makerId: "1",
+      year: undefined,
+    });
+    expect(capturedConfig().urls).toEqual(["https://auc.japancardirect.com/aj-any-model-123.htm"]);
+  });
+
   it("falls back to manual search after authentication is still unavailable", async () => {
     const searchPage = fakePage({
       evaluationResults: [false, false],
@@ -173,6 +201,16 @@ describe("crawlJapanCarDirect", () => {
     expect(createInterface).toHaveBeenCalledTimes(2);
     expect(searchPage.page.evaluate).toHaveBeenCalledTimes(2);
     expect(capturedConfig().urls).toEqual(["https://auc.japancardirect.com/aj-manual-1.htm"]);
+  });
+
+  it("returns a login error instead of waiting for terminal input in UI mode", async () => {
+    const searchPage = fakePage({ evaluationResults: [false] });
+    setupBrowser(searchPage);
+
+    await expect(crawlJapanCarDirect({ make: "Toyota", model: "Any", max: 5, interactive: false }))
+      .rejects.toThrow("Japan Car Direct login is required");
+
+    expect(createInterface).not.toHaveBeenCalled();
   });
 
   it("fills configured login credentials without submitting the form", async () => {

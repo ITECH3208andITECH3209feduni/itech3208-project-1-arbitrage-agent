@@ -253,14 +253,21 @@ export const facets = query({
   args: {
     cursor: v.optional(v.string()),
     limit: v.optional(v.number()),
+    source: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const limit = args.limit ?? FACETS_PAGE_SIZE;
 
-    const page = await ctx.db
-      .query("vehicles")
-      .order("desc")
-      .paginate({ numItems: limit, cursor: args.cursor ?? null });
+    const page = args.source
+      ? await ctx.db
+          .query("vehicles")
+          .withIndex("by_source_url", (q) => q.eq("source", args.source!))
+          .order("desc")
+          .paginate({ numItems: limit, cursor: args.cursor ?? null })
+      : await ctx.db
+          .query("vehicles")
+          .order("desc")
+          .paginate({ numItems: limit, cursor: args.cursor ?? null });
 
     const makesSet = new Set<string>();
     const modelsByMake = new Map<string, Set<string>>();
