@@ -165,6 +165,8 @@ export interface CrawlResult {
   totalExtracted: number;
   /** Number of listings that failed during fetch or extraction. */
   totalFailed: number;
+  /** Bounded, user-readable reasons for failed listings. */
+  errors?: string[];
   /** Extracted vehicle records. */
   records: VehicleRecord[];
   /** Export target where records were written. */

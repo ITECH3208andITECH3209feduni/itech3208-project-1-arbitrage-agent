@@ -12,6 +12,15 @@ import type { VehicleRecord } from "../src/types";
 import { normalizeYear } from "../src/year";
 import { getJpyAudRate } from "../src/exchangeRate.js";
 import { orchestrateEstimates, prepareRefreshRecord, withoutConvexFields } from "../src/estimationOrchestration.js";
+import { validateVehicleRecord } from "../src/vehicleValidation.js";
+
+const costOverridesValidator = v.object({
+  agentFeeAud: v.optional(v.number()), inlandTransportAud: v.optional(v.number()), exportPaperworkAud: v.optional(v.number()),
+  wharfHandlingAud: v.optional(v.number()), customsBrokerageAud: v.optional(v.number()), biosecurityAud: v.optional(v.number()), adrEngineeringAud: v.optional(v.number()),
+  registrationFee: v.optional(v.number()), tacFee: v.optional(v.number()), plateFee: v.optional(v.number()), ravAssessmentFee: v.optional(v.number()),
+  japaneseOriginProof: v.optional(v.boolean()), modifiedVehicle: v.optional(v.boolean()), convertedToRhd: v.optional(v.boolean()),
+  isFuelEfficient: v.optional(v.boolean()), isGreenPassengerCar: v.optional(v.boolean()),
+});
 
 const upsertMany = makeFunctionReference<
   "mutation",
@@ -43,6 +52,27 @@ async function getAllComparables(ctx: any, make: string, model: string, limit: n
     ctx.runQuery(getAnalystComparables, { make, model, limit }),
   ]);
   return [...market, ...analyst];
+}
+
+async function persistRecords(ctx: any, records: VehicleRecord[]) {
+  const secret = process.env.CONVEX_INGEST_SECRET;
+  if (!secret) throw new Error("CONVEX_INGEST_SECRET required");
+
+  const jpRecords = records.filter((record) => record.market === "JP");
+  const groups = new Map<string, Promise<VehicleRecord[]>>();
+  for (const record of jpRecords) {
+    const groupKey = `${record.make!.trim().toLowerCase()}\u0000${record.model!.trim().toLowerCase()}`;
+    if (!groups.has(groupKey)) groups.set(groupKey, getAllComparables(ctx, record.make!, record.model!, 50));
+  }
+  const rate = jpRecords.length > 0 ? await getJpyAudRate({ storage: memoryStorage() }) : null;
+  const comparableMap = new Map<string, readonly VehicleRecord[]>();
+  for (const [groupKey, promise] of groups) comparableMap.set(groupKey, await promise);
+  const enrichedRecords = orchestrateEstimates(records, comparableMap, rate?.rate ?? 0);
+  const upsert = await ctx.runMutation(upsertMany, {
+    secret,
+    vehicles: enrichedRecords,
+  });
+  return { enrichedRecords, upsert };
 }
 
 function memoryStorage(): Storage {
@@ -148,13 +178,7 @@ export const vehicles = action({
     year: v.optional(v.number()),
     auctionDate: v.optional(v.union(v.literal("Today"), v.literal("Future"), v.literal("Past"))),
     requireSold: v.optional(v.boolean()),
-    costOverrides: v.optional(v.object({
-      agentFeeAud: v.optional(v.number()), inlandTransportAud: v.optional(v.number()), exportPaperworkAud: v.optional(v.number()),
-      wharfHandlingAud: v.optional(v.number()), customsBrokerageAud: v.optional(v.number()), biosecurityAud: v.optional(v.number()), adrEngineeringAud: v.optional(v.number()),
-      registrationFee: v.optional(v.number()), tacFee: v.optional(v.number()), plateFee: v.optional(v.number()), ravAssessmentFee: v.optional(v.number()),
-      japaneseOriginProof: v.optional(v.boolean()), modifiedVehicle: v.optional(v.boolean()), convertedToRhd: v.optional(v.boolean()),
-      isFuelEfficient: v.optional(v.boolean()), isGreenPassengerCar: v.optional(v.boolean()),
-    })),
+    costOverrides: v.optional(costOverridesValidator),
     max: v.number(),
   },
     handler: async (ctx, args) => {
@@ -212,25 +236,7 @@ export const vehicles = action({
     const missingMakeModel = records.find((record) => !record.make?.trim() || !record.model?.trim());
     if (missingMakeModel) throw new Error(`Scraper returned vehicle without make/model: ${missingMakeModel.url}`);
 
-    const secret = process.env.CONVEX_INGEST_SECRET;
-    if (!secret) throw new Error("CONVEX_INGEST_SECRET required");
-
-    const jpRecords = records.filter((record) => record.market === "JP");
-    const groups = new Map<string, Promise<VehicleRecord[]>>();
-    for (const record of jpRecords) {
-      const groupKey = `${record.make!.trim().toLowerCase()}\u0000${record.model!.trim().toLowerCase()}`;
-      if (!groups.has(groupKey)) groups.set(groupKey, getAllComparables(ctx, record.make!, record.model!, 50));
-    }
-    const rate = jpRecords.length > 0 ? await getJpyAudRate({ storage: memoryStorage() }) : null;
-    const comparableMap = new Map<string, readonly VehicleRecord[]>();
-    for (const [groupKey, promise] of groups) comparableMap.set(groupKey, await promise);
-    const enrichedRecords = orchestrateEstimates(records, comparableMap, rate?.rate ?? 0);
-
-
-    const upsert = await ctx.runMutation(upsertMany, {
-      secret,
-      vehicles: enrichedRecords,
-    });
+    const { enrichedRecords, upsert } = await persistRecords(ctx, records);
 
     return {
       ...result,
@@ -242,6 +248,71 @@ export const vehicles = action({
         model: record.model,
         price: record.price,
         source: record.source ?? args.source,
+      })),
+    };
+  },
+});
+
+export const ingestJapanCarDirect = action({
+  args: {
+    records: v.array(v.any()),
+    costOverrides: v.optional(costOverridesValidator),
+  },
+  handler: async (ctx, args) => {
+    if (args.records.length > 100) throw new Error("At most 100 Japan Car Direct records can be ingested at once.");
+    const records = args.records.map((value, index) => {
+      const record = validateVehicleRecord(value);
+      if (!record) throw new Error(`Japan Car Direct record ${index + 1} failed vehicle validation.`);
+      if (!record.make?.trim() || !record.model?.trim()) {
+        throw new Error(`Japan Car Direct record ${index + 1} is missing make/model.`);
+      }
+      const url = new URL(record.url);
+      if (
+        url.protocol !== "https:" ||
+        url.hostname !== "auc.japancardirect.com" ||
+        url.port ||
+        url.username ||
+        url.password ||
+        !/^\/aj-[A-Za-z0-9_-]+\.htm$/i.test(url.pathname)
+      ) {
+        throw new Error(`Refusing invalid Japan Car Direct listing URL: ${record.url}`);
+      }
+      return {
+        ...record,
+        ...args.costOverrides,
+        url: canonicalizeUrl(url.href),
+        make: record.make.trim(),
+        model: record.model.trim(),
+        market: "JP" as const,
+        source: "japancardirect",
+        sourceType: "auction" as const,
+        currency: "JPY" as const,
+      };
+    });
+    if (records.length === 0) {
+      return {
+        totalFound: 0,
+        totalExtracted: 0,
+        totalFailed: 0,
+        outputPath: "convex" as const,
+        upserted: 0,
+        records: [],
+      };
+    }
+    const { enrichedRecords, upsert } = await persistRecords(ctx, records);
+    return {
+      totalFound: records.length,
+      totalExtracted: records.length,
+      totalFailed: 0,
+      outputPath: "convex" as const,
+      upserted: upsert.upserted,
+      records: enrichedRecords.map((record) => ({
+        url: record.url,
+        title: record.title,
+        make: record.make,
+        model: record.model,
+        price: record.price,
+        source: record.source,
       })),
     };
   },

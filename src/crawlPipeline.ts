@@ -65,21 +65,36 @@ function matchesTarget(record: VehicleRecord, target?: CrawlTarget): boolean {
   return true;
 }
 
-function parseExtractionResponse(label: string, raw: string): VehicleRecord[] {
+function parseExtractionResponse(label: string, raw: string): { records: VehicleRecord[]; error?: string } {
   try {
     const match = raw.match(/\[[\s\S]*\]/);
     if (!match) {
-      console.error(`[${label}] AI returned no JSON array (response length ${raw.length}; preview: ${raw.slice(0, 250)})`);
-      return [];
+      const error = `AI returned no JSON array (response length ${raw.length}; preview: ${raw.slice(0, 160)})`;
+      console.error(`[${label}] ${error}`);
+      return { records: [], error };
     }
     const value: unknown = JSON.parse(match[0]);
-    if (!Array.isArray(value)) return [];
-    if (!value.length) console.error(`[${label}] AI returned [] (no vehicles extracted)`);
-    return value as VehicleRecord[];
+    if (!Array.isArray(value)) {
+      const error = "AI response JSON was not an array.";
+      console.error(`[${label}] ${error}`);
+      return { records: [], error };
+    }
+    if (!value.length) {
+      const error = "AI returned an empty array.";
+      console.error(`[${label}] ${error}`);
+      return { records: [], error };
+    }
+    return { records: value as VehicleRecord[] };
   } catch (err: unknown) {
-    console.error(`[${label}] Failed to parse extraction result: ${err}; response preview: ${String(raw ?? "").slice(0, 250)}`);
-    return [];
+    const error = `Failed to parse AI response: ${err instanceof Error ? err.message : String(err)} (preview: ${String(raw ?? "").slice(0, 160)})`;
+    console.error(`[${label}] ${error}`);
+    return { records: [], error };
   }
+}
+
+interface ExtractionResult {
+  records: VehicleRecord[];
+  errors: string[];
 }
 
 async function extractInParallel({
@@ -93,9 +108,9 @@ async function extractInParallel({
   prepareRecord,
 }: Omit<CrawlPipelineConfig, "urls" | "persist" | "maxCharacters"> & {
   results: Record<string, string>;
-}): Promise<VehicleRecord[]> {
+}): Promise<ExtractionResult> {
   const entries = Object.entries(results);
-  if (entries.length === 0) return [];
+  if (entries.length === 0) return { records: [], errors: [] };
 
   const batches: Array<Array<[string, string]>> = [];
   for (let i = 0; i < entries.length; i += extractBatchSize) {
@@ -105,6 +120,7 @@ async function extractInParallel({
   console.error(`[${label}] Extracting ${entries.length} pages in ${batches.length} batches (${extractBatchSize}/batch, ${extractConcurrency} concurrent)...`);
 
   const allRecords: VehicleRecord[] = [];
+  const errors: string[] = [];
   for (let i = 0; i < batches.length; i += extractConcurrency) {
     const chunk = batches.slice(i, i + extractConcurrency);
     const batchResults = await Promise.all(
@@ -114,23 +130,35 @@ async function extractInParallel({
         const markdowns = batch.map(([url, md]) => `<!-- PAGE: ${url} -->\n${md}`);
         const raw = await prompt(model, systemPrompt, buildExtractionUser(markdowns));
         const parsed = parseExtractionResponse(label, raw);
-        if (!prepareRecord) return parsed;
+        if (parsed.error) {
+          return {
+            records: [] as VehicleRecord[],
+            errors: batch.map(([url]) => `${url}: ${parsed.error}`),
+          };
+        }
+        if (!prepareRecord) return { records: parsed.records, errors: [] };
         const batchUrls = new Set(batch.map(([url]) => canonicalizeUrl(url)));
         const fallbackPageUrl = batch.length === 1 ? (batch[0]?.[0] ?? "") : "";
-        return parsed
-          .map((record) => {
+        return {
+          records: parsed.records
+            .map((record) => {
             const recordUrl = record.url && batchUrls.has(canonicalizeUrl(record.url))
               ? record.url
               : fallbackPageUrl;
             return prepareRecord(record, recordUrl);
           })
-          .filter((record): record is VehicleRecord => record !== null);
+            .filter((record): record is VehicleRecord => record !== null),
+          errors: [],
+        };
       }),
     );
-    allRecords.push(...batchResults.flat());
+    for (const batchResult of batchResults) {
+      allRecords.push(...batchResult.records);
+      errors.push(...batchResult.errors);
+    }
   }
 
-  return allRecords;
+  return { records: allRecords, errors };
 }
 
 export async function runCrawlPipeline(config: CrawlPipelineConfig): Promise<CrawlResult> {
@@ -148,7 +176,12 @@ export async function runCrawlPipeline(config: CrawlPipelineConfig): Promise<Cra
     : await fetchBatch(urls, process.env.EXA_API_KEY!, config.maxCharacters);
   console.error(`[${label}] Fetched ${Object.keys(pageResults).length} pages, ${Object.keys(fetchErrors).length} errors`);
 
-  const records = await extractInParallel({ ...config, results: pageResults });
+  const extraction = await extractInParallel({ ...config, results: pageResults });
+  const records = extraction.records;
+  const errors = [
+    ...Object.entries(fetchErrors).map(([url, error]) => `${url}: fetch failed: ${error}`),
+    ...extraction.errors,
+  ];
   console.error(`[${label}] AI produced ${records.length} candidate records`);
   const now = new Date().toISOString();
   const normalized: VehicleRecord[] = [];
@@ -158,6 +191,7 @@ export async function runCrawlPipeline(config: CrawlPipelineConfig): Promise<Cra
   for (const record of records) {
     if (!record || typeof record !== "object" || (!record.title && !record.priceRaw && !record.mileageRaw)) {
       console.error(`[${label}] Rejected empty/incomplete record`);
+      errors.push(`${record?.url || "Unknown listing"}: AI record was empty or lacked title, price, and mileage.`);
       totalFailed++;
       if (record?.url) failedUrls.add(canonicalizeUrl(record.url));
       continue;
@@ -166,14 +200,18 @@ export async function runCrawlPipeline(config: CrawlPipelineConfig): Promise<Cra
     const normalizedRecord = normalizeRecord(record);
     const validation = VehicleRecordSchema.safeParse(normalizedRecord);
     if (!validation.success) {
-      console.error(`[${label}] Schema rejected ${record.url}: ${JSON.stringify(validation.error.issues.map(i => ({ field: i.path.join("."), reason: i.message })).slice(0, 15))}`);
+      const details = JSON.stringify(validation.error.issues.map(i => ({ field: i.path.join("."), reason: i.message })).slice(0, 8));
+      console.error(`[${label}] Schema rejected ${record.url}: ${details}`);
+      errors.push(`${record.url}: record validation failed: ${details}`);
       totalFailed++;
       if (record.url) failedUrls.add(canonicalizeUrl(record.url));
       continue;
     }
     const validated = validation.data;
     if (!matchesTarget(validated, config.target)) {
-      console.error(`[${label}] Target mismatch: expected ${JSON.stringify(config.target)}, received ${JSON.stringify({ make: validated.make, model: validated.model, year: validated.year, title: validated.title })}`);
+      const actual = { make: validated.make, model: validated.model, year: validated.year, title: validated.title };
+      console.error(`[${label}] Target mismatch: expected ${JSON.stringify(config.target)}, received ${JSON.stringify(actual)}`);
+      errors.push(`${record.url}: target mismatch; expected ${JSON.stringify(config.target)}, received ${JSON.stringify(actual)}.`);
       totalFailed++;
       if (record.url) failedUrls.add(canonicalizeUrl(record.url));
       continue;
@@ -185,7 +223,12 @@ export async function runCrawlPipeline(config: CrawlPipelineConfig): Promise<Cra
   const extractedUrls = new Set(normalized.map((r) => canonicalizeUrl(r.url)));
   for (const url of urls) {
     const canonicalUrl = canonicalizeUrl(url);
-    if (!extractedUrls.has(canonicalUrl) && !failedUrls.has(canonicalUrl)) totalFailed++;
+    if (!extractedUrls.has(canonicalUrl) && !failedUrls.has(canonicalUrl)) {
+      totalFailed++;
+      if (!Object.keys(fetchErrors).includes(url) && !errors.some((error) => error.startsWith(`${url}:`))) {
+        errors.push(`${url}: no vehicle record was extracted.`);
+      }
+    }
   }
 
   if (normalized.length > 0) {
@@ -202,6 +245,7 @@ export async function runCrawlPipeline(config: CrawlPipelineConfig): Promise<Cra
     totalFound: urls.length,
     totalExtracted: normalized.length,
     totalFailed,
+    ...(errors.length ? { errors: errors.slice(0, 20) } : {}),
     records: normalized,
     outputPath: "convex",
   };
