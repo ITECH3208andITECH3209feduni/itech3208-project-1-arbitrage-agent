@@ -81,6 +81,20 @@ describe("calculateLandedCost", () => {
     expect(result.warnings.some((w) => w.includes("Insurance not supplied"))).toBe(true);
   });
 
+  it("uses the configured insurance rate when no premium is supplied", () => {
+    const result = calculateLandedCost({
+      purchasePriceAud: 10000,
+      japaneseOriginProof: true,
+      freightAud: 500,
+      insuranceRate: 0.02,
+    });
+
+    expect(result.breakdown.insurance.amount).toBe(200);
+    expect(result.valueOfTaxableImportationAud).toBe(10700);
+    expect(result.totalLandedCostAud).toBe(11770);
+    expect(result.breakdown.insurance.source).toBe("Configured 2% of FOB value");
+  });
+
   it("uses the duty rate override when given", () => {
     const result = calculateLandedCost({
       purchasePriceAud: 10000,
@@ -103,6 +117,7 @@ describe("calculateLandedCost", () => {
     expect(() => calculateLandedCost({ purchasePriceAud: -1 })).toThrow("purchasePriceAud");
     expect(() => calculateLandedCost({ purchasePriceAud: 1000, freightAud: -5 })).toThrow("freightAud");
     expect(() => calculateLandedCost({ purchasePriceAud: 1000, overrideCustomsDutyRate: 2 })).toThrow("overrideCustomsDutyRate");
+    expect(() => calculateLandedCost({ purchasePriceAud: 1000, insuranceRate: 1.5 })).toThrow("insuranceRate");
   });
 });
 

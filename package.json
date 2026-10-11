@@ -1,12 +1,11 @@
 {
   "name": "goo-net-crawler",
   "version": "0.1.0",
-  "description": "Crawl Goo-net used car listings — batch fetch, LLM extraction, Japanese → English translation, JSON output",
+  "description": "Vehicle listing crawlers, import cost estimation, and an arbitrage dashboard",
   "type": "module",
-  "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/Fletcher-Alderton/goo-net-crawler"
+    "url": "https://github.com/ITECH3208andITECH3209feduni/itech3208-project-1-arbitrage-agent.git"
   },
   "keywords": [
     "goo-net",

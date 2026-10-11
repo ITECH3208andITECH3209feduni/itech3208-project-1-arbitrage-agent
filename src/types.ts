@@ -118,6 +118,10 @@ export interface VehicleRecord {
   customsBrokerageAud?: number | null;
   biosecurityAud?: number | null;
   adrEngineeringAud?: number | null;
+  freightAud?: number | null;
+  insuranceAud?: number | null;
+  insuranceRate?: number | null;
+  overrideCustomsDutyRate?: number | null;
   registrationFee?: number | null;
   tacFee?: number | null;
   plateFee?: number | null;

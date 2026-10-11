@@ -22,6 +22,8 @@ export type LandedCostInput = {
   freightAud?: number | null;
   /** Marine insurance in AUD. Uses a percentage of the FOB value if not supplied. */
   insuranceAud?: number | null;
+  /** Insurance percentage of FOB value, for example 0.015 for 1.5%. */
+  insuranceRate?: number | null;
 
   /** True when the car was built in Japan and proof of origin (JAEPA) will be supplied. */
   japaneseOriginProof?: boolean;
