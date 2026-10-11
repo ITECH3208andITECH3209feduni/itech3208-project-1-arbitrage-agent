@@ -7,7 +7,6 @@ import { normalizeYear } from "../year";
 import { estimateResaleAud } from "../profitEstimator";
 import { parseAnalystComparables, type AnalystComparable } from "../analystData";
 import {
-  DEALERSHIP_COST_FIELDS,
   dealershipCostOverridesFromInputs,
   loadDealershipCostConfiguration,
   saveDealershipCostConfiguration,
@@ -898,49 +897,6 @@ function App() {
             {scrapeStatus && <p>{scrapeStatus}</p>}
             {jcdManualActionPending && <button type="button" onClick={continueJapanCarDirect}>Continue Japan Car Direct scrape</button>}
           </form>
-          <div className="filter-section cost-config-panel">
-            <h3>Dealership cost settings</h3>
-            <p className="config-note">Saved in this browser and applied to future scrapes. Blank values use system estimates. Rates are entered as percentages. A direct insurance premium overrides the insurance rate. Customs duty overrides should be checked against current import rules.</p>
-            {DEALERSHIP_COST_FIELDS.map(([key, label, kind]) => (
-              <input
-                key={key}
-                type="number"
-                min="0"
-                max={kind === "percent" ? 100 : undefined}
-                step="0.01"
-                aria-label={label}
-                placeholder={`${label} ${kind === "percent" ? "%" : "AUD"}`}
-                value={costInputs[key] ?? ""}
-                onChange={(e) => setCostInputs((current) => ({ ...current, [key]: e.target.value }))}
-              />
-            ))}
-            <button type="button" onClick={() => setCostInputs({})}>Reset dealership costs</button>
-            <label className="check-item"><input type="checkbox" checked={japaneseOriginProof} onChange={(e) => setJapaneseOriginProof(e.target.checked)} /> Japanese origin proof (JAEPA)</label>
-            <label className="check-item"><input type="checkbox" checked={modifiedVehicle} onChange={(e) => setModifiedVehicle(e.target.checked)} /> Modified vehicle</label>
-            <label className="check-item"><input type="checkbox" checked={convertedToRhd} onChange={(e) => setConvertedToRhd(e.target.checked)} /> Converted to RHD</label>
-          </div>
-          <div className="filter-section analyst-panel">
-            <h3>Analyst sale data</h3>
-            <input type="file" accept=".csv,.json,application/json,text/csv" onChange={async (event) => {
-              const file = event.target.files?.[0];
-              if (!file) return;
-              try {
-                const format = file.name.toLowerCase().endsWith(".json") ? "json" : "csv";
-                const parsed = parseAnalystComparables(await file.text(), format);
-                const importable = parsed.filter((sale): sale is AnalystComparable & { make: string; model: string; price: number } => sale.make != null && sale.model != null && sale.price != null);
-                const batchId = globalThis.crypto?.randomUUID?.() ?? `analyst-${Date.now()}`;
-                const result = await importAnalystSales({
-                  batchId,
-                  sales: importable.map(({ make, model, price, year, mileage, soldStatus }) => ({ make, model, price, year: year ?? null, mileage: mileage ?? null, soldStatus })),
-                });
-                setAnalystComparables(parsed);
-                window.localStorage.setItem("analyst-comparables", JSON.stringify(parsed));
-                setScrapeStatus(`Synced ${result.imported} analyst comparables to Convex; ${result.skipped} duplicates/invalid rows skipped.`);
-              } catch (error) { setScrapeStatus(`Analyst file error: ${userError(error)}`); }
-            }} />
-            <small>{allAnalystComparables.length} analyst comparables synced from Convex; provenance remains separate from scraped data.</small>
-          </div>
-          <div className="ui-legend"><strong>Key</strong><span>Confidence: official rule = statutory; official but variable = fee varies; estimate = team default; manual input required = verify.</span><span>Auction sheet: exterior grade is condition (higher is better); interior A–D is trim condition; mileage warnings flag odometer reliability.</span></div>
           {[
             ["Min Price:", minPrice, setMinPrice, "Min Price Here"],
             ["Max Price:", maxPrice, setMaxPrice, "Max Price Here"],
