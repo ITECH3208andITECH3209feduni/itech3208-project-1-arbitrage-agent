@@ -2,7 +2,6 @@ import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 import { vehicleFields } from "./vehicleFields";
 
-
 export default defineSchema({
   vehicles: defineTable(vehicleFields)
     .index("by_url", ["url"])

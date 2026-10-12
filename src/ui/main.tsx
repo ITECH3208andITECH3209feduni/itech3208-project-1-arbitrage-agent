@@ -7,7 +7,6 @@ import { normalizeYear } from "../year";
 import { estimateResaleAud } from "../profitEstimator";
 import { parseAnalystComparables, type AnalystComparable } from "../analystData";
 import {
-  DEALERSHIP_COST_FIELDS,
   dealershipCostOverridesFromInputs,
   loadDealershipCostConfiguration,
   saveDealershipCostConfiguration,
@@ -130,14 +129,16 @@ function normalizedSource(source?: string) {
 }
 function sourcePrefix(source?: string) {
   const normalized = normalizedSource(source);
+  if (normalized.includes("japancardirect")) return "JCD";
   if (normalized.includes("autotrader")) return "AUTOTRADER";
   if (normalized.includes("goo")) return "GOONET";
   if (normalized.includes("prestige")) return "PRESTIGE";
   return normalized.toUpperCase() || "SOURCE";
 }
-type ListingSource = "goonet" | "autotrader" | "prestigemotorsport";
+type ListingSource = "japancardirect" | "goonet" | "autotrader" | "prestigemotorsport";
 function isSource(v: Vehicle, source: ListingSource) {
   const normalized = normalizedSource(v.source);
+  if (source === "japancardirect") return normalized.includes("japancardirect");
   if (source === "autotrader") return normalized.includes("autotrader");
   if (source === "prestigemotorsport") return normalized.includes("prestige");
   return normalized.includes("goo");
@@ -213,6 +214,8 @@ function App() {
   const [rateLabel, setRateLabel] = useState("loading");
   const [, setClockTick] = useState(0);
   const [sort, setSort] = useState("");
+  const [showAllListings, setShowAllListings] = useState(false);
+  const [optionsOpen, setOptionsOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [minPrice, setMinPrice] = useState("");
   const [maxPrice, setMaxPrice] = useState("");
@@ -223,7 +226,7 @@ function App() {
   const [models, setModels] = useState<string[]>([]);
   const [selected, setSelected] = useState<ViewVehicle | null>(null);
   const [bid, setBid] = useState("");
-  const [scrapeSource, setScrapeSource] = useState<ListingSource>("goonet");
+  const [scrapeSource, setScrapeSource] = useState<ListingSource>("japancardirect");
   const [scrapeBrand, setScrapeBrand] = useState("TOYOTA");
   const [scrapeModel, setScrapeModel] = useState("");
   const [scrapeYear, setScrapeYear] = useState("");
@@ -233,12 +236,18 @@ function App() {
   const [refreshingUrl, setRefreshingUrl] = useState<string | null>(null);
   const [refreshStatus, setRefreshStatus] = useState<{ url: string; message: string; error: boolean } | null>(null);
   const [scraping, setScraping] = useState(false);
+  const [jcdJobId, setJcdJobId] = useState<string | null>(null);
+  const [jcdManualActionPending, setJcdManualActionPending] = useState(false);
   const [scrapeSeconds, setScrapeSeconds] = useState(0);
-  const [requireSold, setRequireSold] = useState(true);
-  const [auctionDate, setAuctionDate] = useState<"Today" | "Future" | "Past">("Past");
   const [japaneseOriginProof, setJapaneseOriginProof] = useState(false);
   const [modifiedVehicle, setModifiedVehicle] = useState(false);
   const [convertedToRhd, setConvertedToRhd] = useState(false);
+  const [analystImportStatus, setAnalystImportStatus] = useState("");
+  const costFields = [
+    ["agentFeeAud", "Agent fee"], ["inlandTransportAud", "Japan inland transport"], ["exportPaperworkAud", "Export paperwork"],
+    ["wharfHandlingAud", "Wharf/port handling"], ["customsBrokerageAud", "Customs brokerage"], ["biosecurityAud", "Biosecurity"], ["adrEngineeringAud", "ADR engineering"],
+    ["registrationFee", "Registration"], ["tacFee", "TAC"], ["plateFee", "Plates"], ["ravAssessmentFee", "RAV assessment"],
+  ] as const;
   const [costInputs, setCostInputs] = useState(loadDealershipCostConfiguration);
   const [analystComparables, setAnalystComparables] = useState<AnalystComparable[]>(() => {
     try { return parseAnalystComparables(window.localStorage.getItem("analyst-comparables") ?? "[]", "json"); } catch { return []; }
@@ -252,6 +261,7 @@ function App() {
   };
 
   const scrapeVehicles = useAction(api.scrape.vehicles);
+  const ingestJapanCarDirect = useAction(api.scrape.ingestJapanCarDirect);
   const importAnalystSales = useMutation(api.analystSales.importBatch);
   const remoteAnalystSales = useQuery(api.analystSales.list, { limit: 1000 }) as AnalystComparable[] | undefined;
   const refreshVehicle = useAction(api.scrape.refreshVehicle);
@@ -269,6 +279,14 @@ function App() {
   const [allMakes, setAllMakes] = useState<string[]>([]);
   const [modelsByMake, setModelsByMake] = useState<Record<string, string[]>>({});
   const previousAllModelsRef = useRef<string[]>([]);
+  useEffect(() => {
+    if (!optionsOpen) return;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setOptionsOpen(false);
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [optionsOpen]);
   const facets = useQuery(api.vehicles.facets, {
     cursor: facetCursor,
     limit: FACETS_PAGE_SIZE,
@@ -281,14 +299,18 @@ function App() {
     limit: 250,
     source: "autotrader",
   }) as Vehicle[] | undefined;
+  const japanCarDirectVehicles = useQuery(api.vehicles.list, {
+    limit: 250,
+    source: "japancardirect",
+  }) as Vehicle[] | undefined;
   const prestigeVehicles = useQuery(api.vehicles.list, {
     limit: 250,
     source: "prestigemotorsport",
   }) as Vehicle[] | undefined;
-  const loading = goonetVehicles === undefined || autotraderVehicles === undefined || prestigeVehicles === undefined;
+  const loading = goonetVehicles === undefined || autotraderVehicles === undefined || japanCarDirectVehicles === undefined || prestigeVehicles === undefined;
   const raw = useMemo(
-    () => [...(goonetVehicles ?? []), ...(autotraderVehicles ?? []), ...(prestigeVehicles ?? [])],
-    [goonetVehicles, autotraderVehicles, prestigeVehicles],
+    () => [...(japanCarDirectVehicles ?? []), ...(goonetVehicles ?? []), ...(autotraderVehicles ?? []), ...(prestigeVehicles ?? [])],
+    [japanCarDirectVehicles, goonetVehicles, autotraderVehicles, prestigeVehicles],
   );
 
   useEffect(() => {
@@ -495,6 +517,10 @@ function App() {
     () => filtered.filter((vehicle) => isSource(vehicle, "prestigemotorsport")),
     [filtered],
   );
+  const japanCarDirectFiltered = useMemo(
+    () => filtered.filter((vehicle) => isSource(vehicle, "japancardirect")),
+    [filtered],
+  );
 
   const toggle = (
     arr: string[],
@@ -589,21 +615,25 @@ function App() {
     event.preventDefault();
     if (scraping) return;
 
-    const max = Math.max(1, Math.min(100, Number(scrapeMax) || 5));
+    const max = scrapeSource === "prestigemotorsport"
+      ? 5
+      : Math.max(1, Math.min(100, Number(scrapeMax) || 5));
     const urls = scrapeUrl
       .split(/\s+/)
       .map((url) => url.trim())
       .filter(Boolean);
-    const rawBrand = scrapeBrand.trim();
+    const rawBrand = scrapeSource === "prestigemotorsport" ? "" : scrapeBrand.trim();
     const brand = rawBrand
       ? scrapeSource === "goonet"
         ? rawBrand.toUpperCase()
         : rawBrand
       : undefined;
-    const model = scrapeModel.trim() || undefined;
+    const model = scrapeSource === "prestigemotorsport" ? undefined : scrapeModel.trim() || undefined;
     let year: number | undefined;
     try {
-      year = normalizeYear(scrapeYear);
+      year = scrapeSource === "japancardirect" || scrapeSource === "prestigemotorsport"
+        ? undefined
+        : normalizeYear(scrapeYear);
     } catch (err) {
       setScrapeStatus(userError(err));
       return;
@@ -618,12 +648,8 @@ function App() {
       setScrapeStatus("Enter Autotrader brand/model or URL.");
       return;
     }
-    if (scrapeSource === "prestigemotorsport" && !brand && urls.length === 0) {
-      setScrapeStatus("Enter Prestige Motorsport make or URL.");
-      return;
-    }
-    if (scrapeSource === "prestigemotorsport" && !model && urls.length === 0) {
-      setScrapeStatus("Enter a Prestige Motorsport model, make, or direct URL.");
+    if (scrapeSource === "prestigemotorsport" && urls.length === 0) {
+      setScrapeStatus("Enter a Prestige Motorsport URL.");
       return;
     }
     const costOverrides = {
@@ -634,7 +660,65 @@ function App() {
     };
     setScraping(true);
     setScrapeStatus("Scraping… this can take a minute.");
+    let japanCarDirectPhase: "local-scrape" | "convex-save" = "local-scrape";
     try {
+      if (scrapeSource === "japancardirect") {
+        if (!import.meta.env.DEV) {
+          throw new Error("Japan Car Direct scraping is available from the local development app. Start it with `pnpm dev`.");
+        }
+        const startResponse = await fetch("/api/jcd/scrape", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ make: brand, model, year, urls, max }),
+        });
+        const started = await startResponse.json() as { id?: string; error?: string };
+        if (!startResponse.ok || !started.id) {
+          throw new Error(started.error || "Could not start the local Japan Car Direct scraper.");
+        }
+        setJcdJobId(started.id);
+
+        while (true) {
+          await new Promise((resolve) => window.setTimeout(resolve, 1000));
+          const statusResponse = await fetch(`/api/jcd/status?id=${encodeURIComponent(started.id)}`);
+          const status = await statusResponse.json() as {
+            status?: "running" | "waiting" | "completed" | "failed";
+            message?: string;
+            totalFailed?: number;
+            errors?: string[];
+            records?: VehicleRecord[];
+            error?: string;
+          };
+          if (!statusResponse.ok) {
+            throw new Error(status.error || "Could not read the Japan Car Direct scraper status.");
+          }
+          setScrapeStatus(status.message || "Japan Car Direct scrape running…");
+          setJcdManualActionPending(status.status === "waiting");
+          if (status.status === "failed") {
+            throw new Error(status.error || "Japan Car Direct scrape failed.");
+          }
+          if (status.status === "completed") {
+            setJcdManualActionPending(false);
+            const records = status.records ?? [];
+            if (records.length === 0) {
+              const failureDetails = status.errors?.slice(0, 3).join(" ");
+              setScrapeStatus([
+                status.message || "No Japan Car Direct listings were extracted.",
+                failureDetails,
+                !failureDetails ? "Check the local Vite terminal for crawler details, then retry." : undefined,
+              ].filter(Boolean).join(" "));
+              return;
+            }
+            japanCarDirectPhase = "convex-save";
+            const result = await ingestJapanCarDirect({
+              records,
+              costOverrides,
+            });
+            setScrapeStatus(`Done: ${result.upserted} saved, ${result.totalFailed} failed.`);
+            return;
+          }
+        }
+      }
+
       const result = await scrapeVehicles({
         source: scrapeSource,
         brand,
@@ -643,16 +727,51 @@ function App() {
         query: scrapeSource === "autotrader" && urls.length === 0 ? query : undefined,
         urls: scrapeSource !== "goonet" && urls.length ? urls : undefined,
         year,
-        auctionDate: scrapeSource === "prestigemotorsport" ? auctionDate : undefined,
         costOverrides,
         max,
-        requireSold: scrapeSource === "prestigemotorsport" ? requireSold : undefined,
       });
       setScrapeStatus(`Done: ${result.upserted} saved, ${result.totalFailed} failed.`);
     } catch (err) {
-      setScrapeStatus(userError(err));
+      const message = userError(err);
+      if (
+        scrapeSource === "japancardirect" &&
+        japanCarDirectPhase === "convex-save" &&
+        /ArgumentValidationError|missing the required field `secret`|Validator: v\.object/i.test(message)
+      ) {
+        setScrapeStatus("Japan Car Direct listings were extracted, but the selected Convex deployment has an outdated ingest action. Deploy the current Convex functions with `pnpm exec convex dev` for development or `pnpm exec convex deploy` for production, then retry.");
+      } else if (scrapeSource === "japancardirect" && /networkerror|failed to fetch|network request failed/i.test(message)) {
+        setScrapeStatus(japanCarDirectPhase === "convex-save"
+          ? "Japan Car Direct finished scraping, but the connection to Convex failed while saving. Check VITE_CONVEX_URL and Convex availability, then retry."
+          : "Cannot reach the local Japan Car Direct service. Keep pnpm dev running at the same address as this UI, then retry.");
+      } else if (scrapeSource === "japancardirect" && japanCarDirectPhase === "convex-save") {
+        setScrapeStatus(`Japan Car Direct scraped listings, but saving to Convex failed: ${message}`);
+      } else {
+        setScrapeStatus(message);
+      }
     } finally {
       setScraping(false);
+      setJcdManualActionPending(false);
+      setJcdJobId(null);
+    }
+  };
+
+  const continueJapanCarDirect = async () => {
+    if (!jcdJobId || !jcdManualActionPending) return;
+    setJcdManualActionPending(false);
+    try {
+      const response = await fetch("/api/jcd/continue", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: jcdJobId }),
+      });
+      const result = await response.json() as { error?: string };
+      if (!response.ok) throw new Error(result.error || "Could not continue the Japan Car Direct scrape.");
+    } catch (error) {
+      setJcdManualActionPending(true);
+      const message = userError(error);
+      setScrapeStatus(/networkerror|failed to fetch|network request failed/i.test(message)
+        ? "Cannot reach the local Japan Car Direct service. Keep pnpm dev running at the same address as this UI, then retry."
+        : message);
     }
   };
 
@@ -661,15 +780,26 @@ function App() {
       <header className="top-bar">
         <div className="sort-group">
           <label>Sort Listings</label>
-          <select value={sort} onChange={(e) => setSort(e.target.value)}>
-            <option value="">Select Sort</option>
-            <option value="price-asc">Price: Low to High</option>
-            <option value="price-desc">Price: High to Low</option>
-            <option value="profit-desc">Est. Profit: High to Low</option>
-            <option value="profit-asc">Est. Profit: Low to High</option>
-            <option value="mileage-asc">Odometer: Low to High</option>
-            <option value="year-desc">Year: Newest First</option>
-          </select>
+          <div className="sort-controls">
+            <select value={sort} onChange={(e) => setSort(e.target.value)}>
+              <option value="">Select Sort</option>
+              <option value="price-asc">Price: Low to High</option>
+              <option value="price-desc">Price: High to Low</option>
+              <option value="profit-desc">Est. Profit: High to Low</option>
+              <option value="profit-asc">Est. Profit: Low to High</option>
+              <option value="mileage-asc">Odometer: Low to High</option>
+              <option value="year-desc">Year: Newest First</option>
+            </select>
+            <button
+              type="button"
+              className="options-button"
+              aria-haspopup="dialog"
+              aria-expanded={optionsOpen}
+              onClick={() => setOptionsOpen(true)}
+            >
+              Options
+            </button>
+          </div>
         </div>
         <h1 className="site-title">Arbitrage Agent</h1>
         <div className="search-group">
@@ -696,31 +826,33 @@ function App() {
               value={scrapeSource}
               onChange={(e) => setScrapeSource(e.target.value as ListingSource)}
             >
+              <option value="japancardirect">Japan Car Direct</option>
               <option value="goonet">Goo-net</option>
               <option value="autotrader">Autotrader</option>
               <option value="prestigemotorsport">Prestige Motorsport</option>
             </select>
-            {scrapeSource === "prestigemotorsport" && <select value={auctionDate} onChange={(e) => setAuctionDate(e.target.value as "Today" | "Future" | "Past")} aria-label="Prestige auction date">
-              <option value="Today">Today auctions</option>
-              <option value="Future">Future auctions</option>
-              <option value="Past">Past auctions</option>
-            </select>}
-            <input
-              value={scrapeBrand}
-              onChange={(e) => setScrapeBrand(e.target.value)}
-              placeholder="Brand, e.g. Toyota"
-            />
-            <input
-              value={scrapeModel}
-              onChange={(e) => setScrapeModel(e.target.value)}
-              placeholder={scrapeSource === "prestigemotorsport" ? "Model optional (or use URL)" : "Model optional"}
-            />
-            <input
-              type="number"
-              value={scrapeYear}
-              onChange={(e) => setScrapeYear(e.target.value)}
-              placeholder="Exact year optional"
-            />
+            {scrapeSource !== "prestigemotorsport" && (
+              <>
+                <input
+                  value={scrapeBrand}
+                  onChange={(e) => setScrapeBrand(e.target.value)}
+                  placeholder="Brand, e.g. Toyota"
+                />
+                <input
+                  value={scrapeModel}
+                  onChange={(e) => setScrapeModel(e.target.value)}
+                  placeholder="Model optional"
+                />
+                {scrapeSource !== "japancardirect" && (
+                  <input
+                    type="number"
+                    value={scrapeYear}
+                    onChange={(e) => setScrapeYear(e.target.value)}
+                    placeholder="Exact year optional"
+                  />
+                )}
+              </>
+            )}
             <input
               value={scrapeUrl}
               onChange={(e) => setScrapeUrl(e.target.value)}
@@ -729,20 +861,21 @@ function App() {
                   ? "Optional Goo-net URL"
                   : scrapeSource === "autotrader"
                     ? "Optional Autotrader URL(s)"
-                    : "Optional Prestige URL(s)"
+                    : scrapeSource === "japancardirect"
+                      ? "Optional Japan Car Direct lot URL(s)"
+                      : "Prestige Motorsport URL(s)"
               }
             />
             <div className="scrape-row">
-            {scrapeSource === "prestigemotorsport" && <label className="check-item"><input type="checkbox" checked={requireSold} onChange={(e) => setRequireSold(e.target.checked)} /> Only confirmed sold listings</label>}
-              <input
-                type="number"
-                min="1"
-                max="100"
-                value={scrapeMax}
-                onChange={(e) => setScrapeMax(e.target.value)}
-                aria-label="Max vehicles"
-                disabled={scraping}
-              />
+              {scrapeSource !== "prestigemotorsport" && <input
+                  type="number"
+                  min="1"
+                  max="100"
+                  value={scrapeMax}
+                  onChange={(e) => setScrapeMax(e.target.value)}
+                  aria-label="Max vehicles"
+                  disabled={scraping}
+                />}
               <button type="submit" disabled={scraping} aria-busy={scraping}>
                 {scraping ? (
                   <span className="scrape-button-loading">
@@ -762,50 +895,8 @@ function App() {
               </div>
             )}
             {scrapeStatus && <p>{scrapeStatus}</p>}
+            {jcdManualActionPending && <button type="button" onClick={continueJapanCarDirect}>Continue Japan Car Direct scrape</button>}
           </form>
-          <div className="filter-section cost-config-panel">
-            <h3>Dealership cost settings</h3>
-            <p className="config-note">Saved in this browser and applied to future scrapes. Blank values use system estimates. Rates are entered as percentages. A direct insurance premium overrides the insurance rate. Customs duty overrides should be checked against current import rules.</p>
-            {DEALERSHIP_COST_FIELDS.map(([key, label, kind]) => (
-              <input
-                key={key}
-                type="number"
-                min="0"
-                max={kind === "percent" ? 100 : undefined}
-                step="0.01"
-                aria-label={label}
-                placeholder={`${label} ${kind === "percent" ? "%" : "AUD"}`}
-                value={costInputs[key] ?? ""}
-                onChange={(e) => setCostInputs((current) => ({ ...current, [key]: e.target.value }))}
-              />
-            ))}
-            <button type="button" onClick={() => setCostInputs({})}>Reset dealership costs</button>
-            <label className="check-item"><input type="checkbox" checked={japaneseOriginProof} onChange={(e) => setJapaneseOriginProof(e.target.checked)} /> Japanese origin proof (JAEPA)</label>
-            <label className="check-item"><input type="checkbox" checked={modifiedVehicle} onChange={(e) => setModifiedVehicle(e.target.checked)} /> Modified vehicle</label>
-            <label className="check-item"><input type="checkbox" checked={convertedToRhd} onChange={(e) => setConvertedToRhd(e.target.checked)} /> Converted to RHD</label>
-          </div>
-          <div className="filter-section analyst-panel">
-            <h3>Analyst sale data</h3>
-            <input type="file" accept=".csv,.json,application/json,text/csv" onChange={async (event) => {
-              const file = event.target.files?.[0];
-              if (!file) return;
-              try {
-                const format = file.name.toLowerCase().endsWith(".json") ? "json" : "csv";
-                const parsed = parseAnalystComparables(await file.text(), format);
-                const importable = parsed.filter((sale): sale is AnalystComparable & { make: string; model: string; price: number } => sale.make != null && sale.model != null && sale.price != null);
-                const batchId = globalThis.crypto?.randomUUID?.() ?? `analyst-${Date.now()}`;
-                const result = await importAnalystSales({
-                  batchId,
-                  sales: importable.map(({ make, model, price, year, mileage, soldStatus }) => ({ make, model, price, year: year ?? null, mileage: mileage ?? null, soldStatus })),
-                });
-                setAnalystComparables(parsed);
-                window.localStorage.setItem("analyst-comparables", JSON.stringify(parsed));
-                setScrapeStatus(`Synced ${result.imported} analyst comparables to Convex; ${result.skipped} duplicates/invalid rows skipped.`);
-              } catch (error) { setScrapeStatus(`Analyst file error: ${userError(error)}`); }
-            }} />
-            <small>{allAnalystComparables.length} analyst comparables synced from Convex; provenance remains separate from scraped data.</small>
-          </div>
-          <div className="ui-legend"><strong>Key</strong><span>Confidence: official rule = statutory; official but variable = fee varies; estimate = team default; manual input required = verify.</span><span>Auction sheet: exterior grade is condition (higher is better); interior A–D is trim condition; mileage warnings flag odometer reliability.</span></div>
           {[
             ["Min Price:", minPrice, setMinPrice, "Min Price Here"],
             ["Max Price:", maxPrice, setMaxPrice, "Max Price Here"],
@@ -896,49 +987,138 @@ function App() {
           </div>
         </aside>
         <main>
-          <div className="split-view">
+          <div className={`split-view${showAllListings ? "" : " single-source-view"}`}>
             <section className="source-panel">
               <div className="grid-header">
-                <h2>Goo-net</h2>
+                <h2>Japan Car Direct</h2>
                 <span className="count">
                   {loading
                     ? "Loading..."
-                    : `${goonetFiltered.length} listing${goonetFiltered.length !== 1 ? "s" : ""}`}
+                    : `${japanCarDirectFiltered.length} listing${japanCarDirectFiltered.length !== 1 ? "s" : ""}`}
                 </span>
               </div>
               <div className="grid source-grid">
-                {renderVehicleCards(goonetFiltered, "No Goo-net listings match your filters.")}
+                {renderVehicleCards(japanCarDirectFiltered, "No Japan Car Direct listings match your filters.")}
               </div>
             </section>
-            <section className="source-panel">
-              <div className="grid-header">
-                <h2>Prestige Motorsport</h2>
-                <span className="count">
-                  {loading
-                    ? "Loading..."
-                    : `${prestigeFiltered.length} listing${prestigeFiltered.length !== 1 ? "s" : ""}`}
-                </span>
-              </div>
-              <div className="grid source-grid">
-                {renderVehicleCards(prestigeFiltered, "No Prestige Motorsport listings match your filters.")}
-              </div>
-            </section>
-            <section className="source-panel">
-              <div className="grid-header">
-                <h2>Autotrader</h2>
-                <span className="count">
-                  {loading
-                    ? "Loading..."
-                    : `${autotraderFiltered.length} listing${autotraderFiltered.length !== 1 ? "s" : ""}`}
-                </span>
-              </div>
-              <div className="grid source-grid">
-                {renderVehicleCards(autotraderFiltered, "No Autotrader listings match your filters.")}
-              </div>
-            </section>
+            {showAllListings && (
+              <>
+                <section className="source-panel">
+                  <div className="grid-header">
+                    <h2>Goo-net</h2>
+                    <span className="count">
+                      {loading
+                        ? "Loading..."
+                        : `${goonetFiltered.length} listing${goonetFiltered.length !== 1 ? "s" : ""}`}
+                    </span>
+                  </div>
+                  <div className="grid source-grid">
+                    {renderVehicleCards(goonetFiltered, "No Goo-net listings match your filters.")}
+                  </div>
+                </section>
+                <section className="source-panel">
+                  <div className="grid-header">
+                    <h2>Autotrader</h2>
+                    <span className="count">
+                      {loading
+                        ? "Loading..."
+                        : `${autotraderFiltered.length} listing${autotraderFiltered.length !== 1 ? "s" : ""}`}
+                    </span>
+                  </div>
+                  <div className="grid source-grid">
+                    {renderVehicleCards(autotraderFiltered, "No Autotrader listings match your filters.")}
+                  </div>
+                </section>
+                <section className="source-panel">
+                  <div className="grid-header">
+                    <h2>Prestige Motorsport</h2>
+                    <span className="count">
+                      {loading
+                        ? "Loading..."
+                        : `${prestigeFiltered.length} listing${prestigeFiltered.length !== 1 ? "s" : ""}`}
+                    </span>
+                  </div>
+                  <div className="grid source-grid">
+                    {renderVehicleCards(prestigeFiltered, "No Prestige Motorsport listings match your filters.")}
+                  </div>
+                </section>
+              </>
+            )}
           </div>
         </main>
       </div>
+      {optionsOpen && (
+        <div
+          className="modal-overlay options-overlay"
+          onClick={(event) => {
+            if (event.target === event.currentTarget) setOptionsOpen(false);
+          }}
+        >
+          <section
+            className="modal options-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="options-title"
+          >
+            <div className="modal-header">
+              <h2 id="options-title">Options</h2>
+              <button
+                type="button"
+                className="modal-close"
+                aria-label="Close options"
+                onClick={() => setOptionsOpen(false)}
+              >
+                ×
+              </button>
+            </div>
+            <div className="options-content">
+              <div className="filter-section">
+                <label className="show-all-listings">
+                  <input
+                    type="checkbox"
+                    checked={showAllListings}
+                    onChange={(event) => setShowAllListings(event.target.checked)}
+                  />
+                  Show all listings (Goo-net, Autotrader, and Prestige Motorsport)
+                </label>
+              </div>
+              <div className="filter-section cost-config-panel">
+                <h3>Import and compliance inputs</h3>
+                <p className="config-note">Optional values override defaults for the next scrape. Blank values remain estimates/warnings.</p>
+                {costFields.map(([key, label]) => <input key={key} type="number" min="0" placeholder={`${label} AUD`} value={costInputs[key] ?? ""} onChange={(e) => setCostInputs((current) => ({ ...current, [key]: e.target.value }))} />)}
+                <label className="check-item"><input type="checkbox" checked={japaneseOriginProof} onChange={(e) => setJapaneseOriginProof(e.target.checked)} /> Japanese origin proof (JAEPA)</label>
+                <label className="check-item"><input type="checkbox" checked={modifiedVehicle} onChange={(e) => setModifiedVehicle(e.target.checked)} /> Modified vehicle</label>
+                <label className="check-item"><input type="checkbox" checked={convertedToRhd} onChange={(e) => setConvertedToRhd(e.target.checked)} /> Converted to RHD</label>
+              </div>
+              <div className="filter-section analyst-panel">
+                <h3>Analyst sale data</h3>
+                <input type="file" accept=".csv,.json,application/json,text/csv" onChange={async (event) => {
+                  const file = event.target.files?.[0];
+                  if (!file) return;
+                  try {
+                    const format = file.name.toLowerCase().endsWith(".json") ? "json" : "csv";
+                    const parsed = parseAnalystComparables(await file.text(), format);
+                    const importable = parsed.filter((sale): sale is AnalystComparable & { make: string; model: string; price: number } => sale.make != null && sale.model != null && sale.price != null);
+                    const batchId = globalThis.crypto?.randomUUID?.() ?? `analyst-${Date.now()}`;
+                    const result = await importAnalystSales({
+                      batchId,
+                      sales: importable.map(({ make, model, price, year, mileage, soldStatus }) => ({ make, model, price, year: year ?? null, mileage: mileage ?? null, soldStatus })),
+                    });
+                    setAnalystComparables(parsed);
+                    window.localStorage.setItem("analyst-comparables", JSON.stringify(parsed));
+                    setAnalystImportStatus(`Synced ${result.imported} analyst comparables to Convex; ${result.skipped} duplicates/invalid rows skipped.`);
+                  } catch (error) {
+                    setAnalystImportStatus(`Analyst file error: ${userError(error)}`);
+                  }
+                }} />
+                <small>{allAnalystComparables.length} analyst comparables synced from Convex; provenance remains separate from scraped data.</small>
+                {analystImportStatus && <p className="analyst-import-status" role="status">{analystImportStatus}</p>}
+              </div>
+              <div className="ui-legend"><strong>Key</strong><span>Confidence: official rule = statutory; official but variable = fee varies; estimate = team default; manual input required = verify.</span><span>Auction sheet: exterior grade is condition (higher is better); interior A–D is trim condition; mileage warnings flag odometer reliability.</span></div>
+            </div>
+          </section>
+        </div>
+      )}
       {selected && (
         <div
           className="modal-overlay open"

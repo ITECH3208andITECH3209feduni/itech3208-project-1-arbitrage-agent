@@ -175,6 +175,50 @@ describe("crawlJapanCarDirect", () => {
     expect(capturedConfig().urls).toEqual(["https://auc.japancardirect.com/aj-manual-1.htm"]);
   });
 
+  it("uses the UI continuation callback for manual sign-in and search", async () => {
+    const searchPage = fakePage({
+      evaluationResults: [false, false],
+      lotUrls: ["/aj-manual-1.htm"],
+    });
+    setupBrowser(searchPage);
+    const waitForManualAction = vi.fn(async () => undefined);
+    const onStatus = vi.fn();
+
+    await crawlJapanCarDirect({
+      make: "Toyota",
+      model: "Supra",
+      max: 5,
+      persist: false,
+      onStatus,
+      waitForManualAction,
+    });
+
+    expect(waitForManualAction).toHaveBeenCalledTimes(2);
+    expect(waitForManualAction).toHaveBeenNthCalledWith(
+      1,
+      "Sign in to Japan Car Direct in the browser (complete any verification), then continue.",
+    );
+    expect(createInterface).not.toHaveBeenCalled();
+    expect(onStatus).toHaveBeenCalledWith("Opening Japan Car Direct in Chromium…");
+  });
+
+  it("treats Any as a wildcard rather than an extraction model target", async () => {
+    const searchPage = fakePage({
+      evaluationResults: [
+        true,
+        { makerId: "1", modelLabel: "Any", modelName: "any" },
+        undefined,
+      ],
+      lotUrls: ["/aj-any-model-1.htm"],
+    });
+    setupBrowser(searchPage);
+
+    await crawlJapanCarDirect({ make: "Toyota", model: "Any", max: 5, persist: false });
+
+    expect(capturedConfig().target).toEqual({ make: "Toyota", model: undefined, year: undefined });
+    expect(capturedConfig().buildExtractionUser([])).not.toContain("- model: Any");
+  });
+
   it("fills configured login credentials without submitting the form", async () => {
     process.env.JCD_USERNAME = "test-user";
     process.env.JCD_PASSWORD = "test-password";

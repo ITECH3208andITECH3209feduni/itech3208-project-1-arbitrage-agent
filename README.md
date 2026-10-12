@@ -78,6 +78,14 @@ pnpm dev
 ```
 
 Open the Vite app. It reads live Convex data through `convex/react` using `VITE_CONVEX_URL`.
+In the local app, Japan Car Direct is available in the first scrape-source option. It opens the
+visible Chromium browser through the Vite development server; sign in or finish a manual search
+there, then use **Continue Japan Car Direct scrape** in the UI. The local UI flow requires
+Chromium installed with Playwright and the configured OpenRouter and Convex environment variables.
+It is intentionally available only from `pnpm dev`; a deployed/preview UI cannot launch a local
+browser. Before saving JCD results, deploy the current Convex functions to the deployment used by
+`VITE_CONVEX_URL` (`pnpm exec convex dev` for development or `pnpm exec convex deploy` for
+production); otherwise an older deployed ingest action may reject the results.
 
 ## How It Works
 

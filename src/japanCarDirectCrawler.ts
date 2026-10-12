@@ -10,12 +10,19 @@ import type { CrawlResult } from "./types.js";
 const START_URL = "https://auc.japancardirect.com/aj_neo";
 const ALLOWED_HOST = "auc.japancardirect.com";
 
+function targetFilter(value?: string): string | undefined {
+  const normalized = value?.trim();
+  return normalized && !/^any$/i.test(normalized) ? normalized : undefined;
+}
+
 export interface JapanCarDirectConfig {
   make?: string;
   model?: string;
   year?: number;
   max: number;
   persist?: boolean;
+  onStatus?: (message: string) => void;
+  waitForManualAction?: (message: string) => Promise<void>;
   /** Optional override; default matches the confirmed /aj-<id>.htm format. */
   detailPathPattern?: string;
   /** Direct detail URLs, bypassing interactive search discovery. */
@@ -62,7 +69,11 @@ export function classifyAuctionImages(links: AuctionGalleryLink[]): {
   return { images, auctionSheetImages };
 }
 
-async function pause(message: string): Promise<void> {
+async function pause(message: string, waitForManualAction?: (message: string) => Promise<void>): Promise<void> {
+  if (waitForManualAction) {
+    await waitForManualAction(message);
+    return;
+  }
   const rl = createInterface({ input, output });
   try { await rl.question(`${message}\nPress Enter to continue... `); }
   finally { rl.close(); }
@@ -178,6 +189,7 @@ async function applyAuctionSearch(page: Page, config: JapanCarDirectConfig): Pro
 
 export async function crawlJapanCarDirect(config: JapanCarDirectConfig): Promise<CrawlResult> {
   if (!Number.isInteger(config.max) || config.max < 1) throw new Error("max must be a positive integer");
+  config.onStatus?.("Opening Japan Car Direct in Chromium…");
   const profile = resolve(process.env.JCD_PROFILE_DIR || ".jcd-browser-profile");
   await mkdir(profile, { recursive: true, mode: 0o700 });
   const context = await chromium.launchPersistentContext(profile, {
@@ -192,13 +204,19 @@ export async function crawlJapanCarDirect(config: JapanCarDirectConfig): Promise
       let authenticated = await page.evaluate(() =>
         (window as unknown as { is_auth?: number }).is_auth === 1).catch(() => false);
       if (!authenticated) {
-        await pause("Sign in to Japan Car Direct in the browser (complete any verification).");
+        await pause(
+          "Sign in to Japan Car Direct in the browser (complete any verification), then continue.",
+          config.waitForManualAction,
+        );
         authenticated = await page.evaluate(() =>
           (window as unknown as { is_auth?: number }).is_auth === 1).catch(() => false);
       }
       const searched = authenticated && await applyAuctionSearch(page, config);
       if (!searched) {
-        await pause("Automated filters unavailable. Apply your filters and run a search manually in the browser.");
+        await pause(
+          "Automated filters unavailable. Apply your filters and run a search manually in the browser, then continue.",
+          config.waitForManualAction,
+        );
       }
     }
 
@@ -224,7 +242,8 @@ export async function crawlJapanCarDirect(config: JapanCarDirectConfig): Promise
       } catch { return []; }
     }))].slice(0, config.max);
     if (urls.length === 0) {
-      console.log("No auction lot URLs found. Verify results are visible in #aj_out_poisk before pressing Enter.");
+      config.onStatus?.("No matching Japan Car Direct auction lots were found.");
+      console.log("No auction lot URLs found. Verify results are visible in #aj_out_poisk.");
       console.log("Sample same-domain links (no credentials or cookies):");
       for (const raw of rawUrls.slice(0, 25)) {
         try { console.log(new URL(safeAuctionUrl(raw)).pathname); } catch { /* ignore */ }
@@ -235,13 +254,19 @@ export async function crawlJapanCarDirect(config: JapanCarDirectConfig): Promise
     const listingImagesByUrl = new Map<string, { images: string[]; auctionSheetImages: string[] }>();
 
     const systemPrompt = `Extract Japan Car Direct Japanese vehicle auction records. Return ONLY a JSON array. Fields: url, sourceId, make, model, title, titleRaw, price, priceRaw, mileage, mileageRaw, year, color, colorRaw, transmission, transmissionRaw, driveType, driveTypeRaw, fuelType, fuelTypeRaw, bodyType, bodyTypeRaw, description, descriptionRaw, dealer, dealerRaw, location, locationRaw, engineSize, doors, seats, images, auctionSheetImages, auctionNumber, auctionHouse, exteriorGrade, interiorGrade, inspectorNotes, soldStatus, extractedAt. Translate Japanese text to English in non-Raw fields. Missing numeric fields null, missing string fields empty, missing arrays empty. Never invent prices, winning bids, sold status, or vehicle details. IMPORTANT: price_start is an opening bid, NOT a purchase price; price_finish=0 does NOT mean sold. Only set soldStatus="sold" if an explicit sale is confirmed; otherwise unknown. Use price=null when only an opening price or unsold/zero finish is available. Prefer the detail form #poisk hidden fields for make/model/year/chassis/mileage/grade when populated. Preserve original auction sheet images and source URLs. The auction sheet is the dedicated thumb0 image when present; otherwise the final gallery image is the auction sheet. Keep it in auctionSheetImages, not images.`;
+    config.onStatus?.(`Extracting ${urls.length} Japan Car Direct auction lot${urls.length === 1 ? "" : "s"}…`);
+    const target = {
+      make: targetFilter(config.make),
+      model: targetFilter(config.model),
+      year: config.year,
+    };
     return await runCrawlPipeline({
       label: "jcd-crawl",
       urls,
       model: process.env.OPENROUTER_MODEL || "deepseek/deepseek-v4-flash",
       systemPrompt,
-      buildExtractionUser: (blocks) => `${buildTargetInstruction(config)}\nExtract one auction vehicle per supplied detail page:\n${blocks.join("\n\n---\n\n")}\nReturn a JSON array only.`,
-      target: { make: config.make, model: config.model, year: config.year },
+      buildExtractionUser: (blocks) => `${buildTargetInstruction(target)}\nExtract one auction vehicle per supplied detail page:\n${blocks.join("\n\n---\n\n")}\nReturn a JSON array only.`,
+      target,
       persist: config.persist,
       extractBatchSize: 1,
       extractConcurrency: 2,
