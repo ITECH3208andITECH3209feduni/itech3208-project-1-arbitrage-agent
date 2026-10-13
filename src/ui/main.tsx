@@ -1158,7 +1158,7 @@ function App() {
                 ) : (
                   <div className="modal-car-img placeholder">No Image</div>
                 )}
-                {selected.auctionSheetImages?.length ? <div className="auction-gallery"><strong>Auction sheet images</strong><div>{selected.auctionSheetImages.map((image) => <img key={image} src={image} alt="Auction sheet" loading="lazy" />)}</div></div> : null}
+                {selected.auctionSheetImages?.length ? <div className="auction-gallery"><strong>Auction sheet images</strong><div>{selected.auctionSheetImages.map((image) => <span className="auction-gallery-item" key={image}><img src={image} alt="Auction sheet" loading="lazy" /></span>)}</div></div> : null}
                 <div className="modal-section-title">Buyers Details</div>
                 <Detail l="Auction Number:" v={selected.auctionNo} />
                 <Detail
